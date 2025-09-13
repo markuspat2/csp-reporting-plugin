@@ -1,0 +1,336 @@
+<?php
+/**
+ * CSP Admin Class
+ * 
+ * Handles the WordPress admin interface for CSP reporting plugin
+ */
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class CSP_Admin {
+    
+    private $logger;
+    
+    /**
+     * Constructor
+     */
+    public function __construct() {
+        $this->logger = new CSP_Logger();
+        add_action('admin_menu', array($this, 'add_admin_menu'));
+        add_action('admin_init', array($this, 'register_settings'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+        add_action('wp_ajax_csp_download_log', array($this, 'download_log_file'));
+        add_action('wp_ajax_csp_clear_logs', array($this, 'clear_log_files'));
+        add_action('wp_ajax_csp_get_log_content', array($this, 'get_log_content'));
+    }
+    
+    /**
+     * Add admin menu
+     */
+    public function add_admin_menu() {
+        add_options_page(
+            __('CSP Reporting', 'csp-reporting'),
+            __('CSP Reporting', 'csp-reporting'),
+            'manage_options',
+            'csp-reporting',
+            array($this, 'admin_page')
+        );
+    }
+    
+    /**
+     * Register settings
+     */
+    public function register_settings() {
+        register_setting('csp_reporting_options', 'csp_reporting_options', array($this, 'sanitize_options'));
+        
+        add_settings_section(
+            'csp_general_section',
+            __('General Settings', 'csp-reporting'),
+            array($this, 'general_section_callback'),
+            'csp-reporting'
+        );
+        
+        add_settings_field(
+            'csp_enabled',
+            __('Enable CSP Reporting', 'csp-reporting'),
+            array($this, 'csp_enabled_callback'),
+            'csp-reporting',
+            'csp_general_section'
+        );
+        
+        add_settings_field(
+            'csp_policy',
+            __('CSP Policy', 'csp-reporting'),
+            array($this, 'csp_policy_callback'),
+            'csp-reporting',
+            'csp_general_section'
+        );
+        
+        add_settings_section(
+            'csp_logging_section',
+            __('Logging Settings', 'csp-reporting'),
+            array($this, 'logging_section_callback'),
+            'csp-reporting'
+        );
+        
+        add_settings_field(
+            'log_retention_days',
+            __('Log Retention (Days)', 'csp-reporting'),
+            array($this, 'log_retention_callback'),
+            'csp-reporting',
+            'csp_logging_section'
+        );
+        
+        add_settings_field(
+            'log_max_size',
+            __('Max Log File Size (Bytes)', 'csp-reporting'),
+            array($this, 'log_max_size_callback'),
+            'csp-reporting',
+            'csp_logging_section'
+        );
+        
+        add_settings_field(
+            'enable_admin_notices',
+            __('Enable Admin Notices', 'csp-reporting'),
+            array($this, 'admin_notices_callback'),
+            'csp-reporting',
+            'csp_logging_section'
+        );
+    }
+    
+    /**
+     * Enqueue admin scripts and styles
+     */
+    public function enqueue_admin_scripts($hook) {
+        if ($hook !== 'settings_page_csp-reporting') {
+            return;
+        }
+        
+        wp_enqueue_style('csp-admin-style', CSP_REPORTING_PLUGIN_URL . 'assets/admin.css', array(), CSP_REPORTING_VERSION);
+        wp_enqueue_script('csp-admin-script', CSP_REPORTING_PLUGIN_URL . 'assets/admin.js', array('jquery'), CSP_REPORTING_VERSION, true);
+        
+        wp_localize_script('csp-admin-script', 'csp_admin_ajax', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('csp_admin_nonce'),
+            'strings' => array(
+                'confirm_clear_logs' => __('Are you sure you want to clear all log files? This action cannot be undone.', 'csp-reporting'),
+                'logs_cleared' => __('Log files have been cleared successfully.', 'csp-reporting'),
+                'error_occurred' => __('An error occurred. Please try again.', 'csp-reporting')
+            )
+        ));
+    }
+    
+    /**
+     * Admin page callback
+     */
+    public function admin_page() {
+        $options = get_option('csp_reporting_options', array());
+        $log_stats = $this->logger->get_log_statistics();
+        $log_files = $this->logger->get_log_files();
+        
+        include CSP_REPORTING_PLUGIN_DIR . 'templates/admin-page.php';
+    }
+    
+    /**
+     * Sanitize options
+     */
+    public function sanitize_options($input) {
+        $sanitized = array();
+        
+        $sanitized['csp_enabled'] = !empty($input['csp_enabled']) ? 1 : 0;
+        $sanitized['csp_policy'] = sanitize_textarea_field($input['csp_policy']);
+        $sanitized['log_retention_days'] = intval($input['log_retention_days']);
+        $sanitized['log_max_size'] = intval($input['log_max_size']);
+        $sanitized['enable_admin_notices'] = !empty($input['enable_admin_notices']) ? 1 : 0;
+        
+        // Validate log retention days
+        if ($sanitized['log_retention_days'] < 1) {
+            $sanitized['log_retention_days'] = 30;
+        }
+        
+        // Validate log max size (minimum 1MB)
+        if ($sanitized['log_max_size'] < 1048576) {
+            $sanitized['log_max_size'] = 10485760; // 10MB
+        }
+        
+        return $sanitized;
+    }
+    
+    /**
+     * Section callbacks
+     */
+    public function general_section_callback() {
+        echo '<p>' . __('Configure your Content Security Policy settings.', 'csp-reporting') . '</p>';
+    }
+    
+    public function logging_section_callback() {
+        echo '<p>' . __('Configure logging behavior and file management.', 'csp-reporting') . '</p>';
+    }
+    
+    /**
+     * Field callbacks
+     */
+    public function csp_enabled_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = !empty($options['csp_enabled']) ? 1 : 0;
+        echo '<input type="checkbox" name="csp_reporting_options[csp_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . __('Enable CSP report-only headers on your site.', 'csp-reporting') . '</p>';
+    }
+    
+    public function csp_policy_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $policy = !empty($options['csp_policy']) ? $options['csp_policy'] : '';
+        echo '<textarea name="csp_reporting_options[csp_policy]" rows="5" cols="80" class="large-text code">' . esc_textarea($policy) . '</textarea>';
+        echo '<p class="description">' . __('Enter your Content Security Policy directives. Use semicolons to separate directives.', 'csp-reporting') . '</p>';
+    }
+    
+    public function log_retention_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $retention = !empty($options['log_retention_days']) ? intval($options['log_retention_days']) : 30;
+        echo '<input type="number" name="csp_reporting_options[log_retention_days]" value="' . esc_attr($retention) . '" min="1" max="365" />';
+        echo '<p class="description">' . __('Number of days to keep log files before automatic cleanup.', 'csp-reporting') . '</p>';
+    }
+    
+    public function log_max_size_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $max_size = !empty($options['log_max_size']) ? intval($options['log_max_size']) : 10485760;
+        echo '<input type="number" name="csp_reporting_options[log_max_size]" value="' . esc_attr($max_size) . '" min="1048576" step="1048576" />';
+        echo '<p class="description">' . __('Maximum size of a single log file in bytes. Files will be rotated when this size is reached.', 'csp-reporting') . '</p>';
+    }
+    
+    public function admin_notices_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = !empty($options['enable_admin_notices']) ? 1 : 0;
+        echo '<input type="checkbox" name="csp_reporting_options[enable_admin_notices]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . __('Show admin notices for important CSP events.', 'csp-reporting') . '</p>';
+    }
+    
+    /**
+     * Download log file via AJAX
+     */
+    public function download_log_file() {
+        check_ajax_referer('csp_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('You do not have sufficient permissions to access this page.', 'csp-reporting'));
+        }
+        
+        $file_path = sanitize_text_field($_POST['file_path']);
+        
+        if (!file_exists($file_path) || !is_readable($file_path)) {
+            wp_die(__('File not found or not readable.', 'csp-reporting'));
+        }
+        
+        // Verify the file is within the log directory
+        $log_dir = realpath(CSP_REPORTING_LOG_DIR);
+        $file_path = realpath($file_path);
+        
+        if (strpos($file_path, $log_dir) !== 0) {
+            wp_die(__('Invalid file path.', 'csp-reporting'));
+        }
+        
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="' . basename($file_path) . '"');
+        header('Content-Length: ' . filesize($file_path));
+        
+        readfile($file_path);
+        exit;
+    }
+    
+    /**
+     * Clear log files via AJAX
+     */
+    public function clear_log_files() {
+        check_ajax_referer('csp_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('You do not have sufficient permissions to access this page.', 'csp-reporting'));
+        }
+        
+        $files = $this->logger->get_log_files();
+        $deleted_count = 0;
+        
+        foreach ($files as $file) {
+            if (unlink($file)) {
+                $deleted_count++;
+            }
+        }
+        
+        wp_send_json_success(array(
+            'message' => sprintf(__('%d log files have been cleared.', 'csp-reporting'), $deleted_count)
+        ));
+    }
+    
+    /**
+     * Get log file content via AJAX
+     */
+    public function get_log_content() {
+        check_ajax_referer('csp_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('You do not have sufficient permissions to access this page.', 'csp-reporting'));
+        }
+        
+        $file_path = sanitize_text_field($_POST['file_path']);
+        
+        if (!file_exists($file_path) || !is_readable($file_path)) {
+            wp_send_json_error(array(
+                'message' => __('File not found or not readable.', 'csp-reporting')
+            ));
+        }
+        
+        // Verify the file is within the log directory
+        $log_dir = realpath(CSP_REPORTING_LOG_DIR);
+        $file_path = realpath($file_path);
+        
+        if (strpos($file_path, $log_dir) !== 0) {
+            wp_send_json_error(array(
+                'message' => __('Invalid file path.', 'csp-reporting')
+            ));
+        }
+        
+        $content = $this->logger->get_log_contents($file_path, 1000); // Limit to 1000 lines
+        
+        if ($content === false) {
+            wp_send_json_error(array(
+                'message' => __('Failed to read file content.', 'csp-reporting')
+            ));
+        }
+        
+        wp_send_json_success(array(
+            'content' => $content
+        ));
+    }
+    
+    /**
+     * Show admin notices
+     */
+    public function show_admin_notices() {
+        $options = get_option('csp_reporting_options', array());
+        
+        if (empty($options['enable_admin_notices'])) {
+            return;
+        }
+        
+        $log_stats = $this->logger->get_log_statistics();
+        
+        if ($log_stats['total_entries'] > 0) {
+            $class = 'notice notice-info';
+            $message = sprintf(
+                __('CSP Reporting: %d violations logged across %d files (%s total size).', 'csp-reporting'),
+                $log_stats['total_entries'],
+                $log_stats['total_files'],
+                $log_stats['total_size_formatted']
+            );
+            
+            printf('<div class="%1$s"><p>%2$s <a href="%3$s">%4$s</a></p></div>', 
+                esc_attr($class), 
+                esc_html($message),
+                admin_url('options-general.php?page=csp-reporting'),
+                __('View Reports', 'csp-reporting')
+            );
+        }
+    }
+}
