@@ -4,7 +4,7 @@
  * Plugin URI: https://example.com/csp-reporting-plugin
  * Description: A WordPress plugin for Content Security Policy (CSP) report-only headers with server-side logging capabilities.
  * Version: 1.0.0
- * Author: Your Name
+ * Author: Matchbox Design Group
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: csp-reporting
