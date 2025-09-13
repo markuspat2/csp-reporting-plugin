@@ -90,6 +90,9 @@ if (!defined('ABSPATH')) {
                     <a href="<?php echo home_url('/csp-report-endpoint/'); ?>" target="_blank" class="button button-secondary">
                         <?php _e('Test Endpoint', 'csp-reporting'); ?>
                     </a>
+                    <a href="<?php echo home_url('/?csp_debug_rewrite=1'); ?>" target="_blank" class="button button-secondary">
+                        <?php _e('Debug Rewrite Rules', 'csp-reporting'); ?>
+                    </a>
                     <button type="button" class="button button-secondary" id="refresh-stats">
                         <?php _e('Refresh Statistics', 'csp-reporting'); ?>
                     </button>

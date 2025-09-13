@@ -75,10 +75,14 @@ class CSP_Reporting_Plugin {
         
         // Add custom endpoint for CSP reports
         add_action('init', array($this, 'add_csp_endpoint'));
+        add_action('init', array($this, 'maybe_flush_rewrite_rules'));
         add_action('template_redirect', array($this, 'handle_csp_endpoint'));
         
         // Add admin notices
         add_action('admin_notices', array($this, 'show_admin_notices'));
+        
+        // Add debug functionality
+        add_action('init', array($this, 'debug_rewrite_rules'));
     }
     
     /**
@@ -167,10 +171,30 @@ class CSP_Reporting_Plugin {
     }
     
     /**
+     * Flush rewrite rules if needed
+     */
+    public function maybe_flush_rewrite_rules() {
+        $version = get_option('csp_reporting_rewrite_version');
+        if ($version !== CSP_REPORTING_VERSION) {
+            flush_rewrite_rules();
+            update_option('csp_reporting_rewrite_version', CSP_REPORTING_VERSION);
+        }
+    }
+    
+    /**
      * Handle CSP report endpoint
      */
     public function handle_csp_endpoint() {
+        // Check for rewrite rule match
         if (get_query_var('csp_report')) {
+            $this->reporter->handle_report();
+            exit;
+        }
+        
+        // Fallback: Check URL directly
+        $request_uri = $_SERVER['REQUEST_URI'];
+        if (strpos($request_uri, '/csp-report-endpoint/') !== false || 
+            strpos($request_uri, '/csp-report-endpoint') !== false) {
             $this->reporter->handle_report();
             exit;
         }
@@ -190,6 +214,24 @@ class CSP_Reporting_Plugin {
     public function show_admin_notices() {
         if (is_admin() && current_user_can('manage_options')) {
             $this->admin->show_admin_notices();
+        }
+    }
+    
+    /**
+     * Debug rewrite rules (for troubleshooting)
+     */
+    public function debug_rewrite_rules() {
+        if (current_user_can('manage_options') && isset($_GET['csp_debug_rewrite'])) {
+            global $wp_rewrite;
+            echo '<pre>';
+            echo "Rewrite Rules:\n";
+            print_r($wp_rewrite->wp_rewrite_rules());
+            echo "\nQuery Vars:\n";
+            print_r($GLOBALS['wp']->query_vars);
+            echo "\nRequest URI: " . $_SERVER['REQUEST_URI'] . "\n";
+            echo "\nCSP Report Query Var: " . get_query_var('csp_report') . "\n";
+            echo '</pre>';
+            exit;
         }
     }
 }
