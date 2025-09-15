@@ -24,6 +24,12 @@ class CSP_Reporter {
      * Handle CSP violation report
      */
     public function handle_report() {
+        // Check if this is a test request (GET method)
+        if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+            $this->handle_test_request();
+            return;
+        }
+        
         // Get the raw input
         $input = file_get_contents('php://input');
         
@@ -51,6 +57,36 @@ class CSP_Reporter {
         
         // Send success response
         $this->send_success_response();
+    }
+    
+    /**
+     * Handle test request (GET method)
+     */
+    private function handle_test_request() {
+        $options = get_option('csp_reporting_options', array());
+        $log_stats = $this->logger->get_log_statistics();
+        
+        $response = array(
+            'status' => 'success',
+            'message' => 'CSP Reporting endpoint is working correctly',
+            'plugin_info' => array(
+                'version' => CSP_REPORTING_VERSION,
+                'enabled' => !empty($options['csp_enabled']),
+                'endpoint_url' => home_url('/csp-report-endpoint/'),
+                'log_directory' => CSP_REPORTING_LOG_DIR,
+                'log_stats' => $log_stats
+            ),
+            'test_info' => array(
+                'timestamp' => current_time('mysql'),
+                'request_method' => $_SERVER['REQUEST_METHOD'],
+                'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'Unknown',
+                'client_ip' => $this->get_client_ip()
+            )
+        );
+        
+        header('Content-Type: application/json');
+        echo json_encode($response, JSON_PRETTY_PRINT);
+        exit;
     }
     
     /**

@@ -25,6 +25,9 @@
             // Refresh statistics
             $(document).on('click', '#refresh-stats', this.refreshStats);
             
+            // Send test report
+            $(document).on('click', '#send-test-report', this.sendTestReport);
+            
             // Close modal
             $(document).on('click', '.csp-modal-close', this.closeModal);
             
@@ -154,6 +157,52 @@
         refreshStats: function(e) {
             e.preventDefault();
             location.reload();
+        },
+        
+        sendTestReport: function(e) {
+            e.preventDefault();
+            
+            var $button = $(this);
+            $button.prop('disabled', true).text('Sending...');
+            
+            // Create a test CSP violation report
+            var testReport = {
+                'csp-report': {
+                    'document-uri': window.location.origin + '/test-page/',
+                    'violated-directive': 'script-src \'self\'',
+                    'effective-directive': 'script-src',
+                    'original-policy': 'script-src \'self\'; object-src \'none\';',
+                    'disposition': 'report',
+                    'blocked-uri': 'https://example.com/malicious-script.js',
+                    'status-code': 200,
+                    'source-file': 'https://example.com/test-page.html',
+                    'line-number': 15,
+                    'column-number': 8
+                }
+            };
+            
+            $.ajax({
+                url: window.location.origin + '/csp-report-endpoint/',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(testReport),
+                success: function(response, status, xhr) {
+                    if (xhr.status === 204) {
+                        CSPAdmin.showAlert('Test report sent successfully! Check the logs for the new entry.', 'success');
+                        setTimeout(function() {
+                            location.reload();
+                        }, 1500);
+                    } else {
+                        CSPAdmin.showAlert('Unexpected response: ' + xhr.status, 'warning');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    CSPAdmin.showAlert('Failed to send test report: ' + error, 'error');
+                },
+                complete: function() {
+                    $button.prop('disabled', false).text('Send Test Report');
+                }
+            });
         },
         
         closeModal: function(e) {

@@ -28,6 +28,22 @@ if (!defined('ABSPATH')) {
         
         <div class="csp-sidebar">
             <div class="csp-widget">
+                <h3><?php _e('Plugin Status', 'csp-reporting'); ?></h3>
+                <div class="csp-status">
+                    <div class="status-item">
+                        <span class="status-label"><?php _e('CSP Reporting:', 'csp-reporting'); ?></span>
+                        <span class="status-value <?php echo !empty($options['csp_enabled']) ? 'csp-status-enabled' : 'csp-status-disabled'; ?>">
+                            <?php echo !empty($options['csp_enabled']) ? __('Enabled', 'csp-reporting') : __('Disabled', 'csp-reporting'); ?>
+                        </span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label"><?php _e('Endpoint URL:', 'csp-reporting'); ?></span>
+                        <span class="status-value"><?php echo home_url('/csp-report-endpoint/'); ?></span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="csp-widget">
                 <h3><?php _e('Log Statistics', 'csp-reporting'); ?></h3>
                 <div class="csp-stats">
                     <div class="stat-item">
@@ -90,6 +106,9 @@ if (!defined('ABSPATH')) {
                     <a href="<?php echo home_url('/csp-report-endpoint/'); ?>" target="_blank" class="button button-secondary">
                         <?php _e('Test Endpoint', 'csp-reporting'); ?>
                     </a>
+                    <button type="button" class="button button-secondary" id="send-test-report">
+                        <?php _e('Send Test Report', 'csp-reporting'); ?>
+                    </button>
                     <a href="<?php echo home_url('/?csp_debug_rewrite=1'); ?>" target="_blank" class="button button-secondary">
                         <?php _e('Debug Rewrite Rules', 'csp-reporting'); ?>
                     </a>

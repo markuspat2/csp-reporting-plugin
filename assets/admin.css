@@ -67,6 +67,36 @@
     color: #23282d;
 }
 
+.csp-status {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.status-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.status-item:last-child {
+    border-bottom: none;
+}
+
+.status-label {
+    font-weight: 500;
+    color: #646970;
+}
+
+.status-value {
+    font-weight: 600;
+    color: #23282d;
+    font-family: monospace;
+    font-size: 12px;
+}
+
 .csp-log-files {
     max-height: 300px;
     overflow-y: auto;
