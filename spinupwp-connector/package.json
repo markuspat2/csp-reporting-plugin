@@ -1,0 +1,25 @@
+{
+  "name": "spinupwp-connector",
+  "version": "0.1.0",
+  "description": "Local add-on to connect LocalWP with SpinupWP.",
+  "license": "MIT",
+  "main": "dist/main.js",
+  "renderer": "dist/renderer.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsup src/main.ts src/renderer.tsx --dts --format cjs --out-dir dist --sourcemap",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.8",
+    "@types/react-dom": "^18.3.0",
+    "tsup": "^8.2.4",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
+

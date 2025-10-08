@@ -1,0 +1,13 @@
+{
+  "name": "SpinupWP Connector",
+  "slug": "spinupwp-connector",
+  "description": "Connect Local to SpinupWP: authenticate, list servers, and create sites.",
+  "version": "0.1.0",
+  "author": "",
+  "homepage": "",
+  "license": "MIT",
+  "main": "dist/main.js",
+  "renderer": "dist/renderer.js",
+  "minLocalVersion": "8.0.0"
+}
+
