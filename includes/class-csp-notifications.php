@@ -6,7 +6,7 @@
  * webhook delivery.
  */
 
-if (!defined('ABSPATH')) {
+if ( ! defined('ABSPATH')) {
     exit;
 }
 
@@ -29,11 +29,11 @@ class CSP_Notifications {
      *
      * @param CSP_Database $database
      */
-    public function __construct($database) {
+    public function __construct( $database ) {
         $this->database = $database;
 
-        add_action(self::DIGEST_HOOK, array($this, 'send_digest'));
-        add_action('csp_violation_logged', array($this, 'maybe_send_immediate_alert'), 10, 2);
+        add_action(self::DIGEST_HOOK, array( $this, 'send_digest' ));
+        add_action('csp_violation_logged', array( $this, 'maybe_send_immediate_alert' ), 10, 2);
     }
 
     /**
@@ -41,7 +41,7 @@ class CSP_Notifications {
      * the handler so a settings change needs no rescheduling).
      */
     public static function schedule() {
-        if (!wp_next_scheduled(self::DIGEST_HOOK)) {
+        if ( ! wp_next_scheduled(self::DIGEST_HOOK)) {
             wp_schedule_event(time(), 'daily', self::DIGEST_HOOK);
         }
     }
@@ -59,13 +59,13 @@ class CSP_Notifications {
         $options = get_option('csp_reporting_options', array());
 
         return array(
-            'email_enabled' => !empty($options['notify_email_enabled']),
-            'recipients' => !empty($options['notify_email_recipients'])
+            'email_enabled' => ! empty($options['notify_email_enabled']),
+            'recipients' => ! empty($options['notify_email_recipients'])
                 ? array_filter(array_map('trim', explode(',', $options['notify_email_recipients'])))
-                : array(get_option('admin_email')),
+                : array( get_option('admin_email') ),
             'frequency' => isset($options['notify_digest_frequency']) && $options['notify_digest_frequency'] === 'weekly' ? 'weekly' : 'daily',
-            'immediate_high' => !empty($options['notify_immediate_high']),
-            'webhook_url' => !empty($options['notify_webhook_url']) ? $options['notify_webhook_url'] : '',
+            'immediate_high' => ! empty($options['notify_immediate_high']),
+            'webhook_url' => ! empty($options['notify_webhook_url']) ? $options['notify_webhook_url'] : '',
         );
     }
 
@@ -76,13 +76,13 @@ class CSP_Notifications {
     public function send_digest() {
         $settings = $this->get_settings();
 
-        if (!$settings['email_enabled'] && $settings['webhook_url'] === '') {
+        if ( ! $settings['email_enabled'] && $settings['webhook_url'] === '') {
             return;
         }
 
         $days = 1;
         if ($settings['frequency'] === 'weekly') {
-            if ((int) current_time('N') !== 1) {
+            if ( (int) current_time('N') !== 1) {
                 return;
             }
             $days = 7;
@@ -120,7 +120,7 @@ class CSP_Notifications {
             '',
         );
 
-        if (!empty($stats['top_blocked'])) {
+        if ( ! empty($stats['top_blocked'])) {
             $lines[] = __('Top blocked sources:', 'csp-reporting');
             foreach ($stats['top_blocked'] as $row) {
                 $lines[] = sprintf(
@@ -140,7 +140,7 @@ class CSP_Notifications {
 
         $body = implode("\n", $lines);
 
-        if ($settings['email_enabled'] && !empty($settings['recipients'])) {
+        if ($settings['email_enabled'] && ! empty($settings['recipients'])) {
             wp_mail($settings['recipients'], $subject, $body);
         }
 
@@ -156,14 +156,14 @@ class CSP_Notifications {
      * @param array $report
      * @param string $severity
      */
-    public function maybe_send_immediate_alert($report, $severity) {
+    public function maybe_send_immediate_alert( $report, $severity ) {
         if ($severity !== 'high') {
             return;
         }
 
         $settings = $this->get_settings();
 
-        if (!$settings['immediate_high']) {
+        if ( ! $settings['immediate_high']) {
             return;
         }
 
@@ -198,7 +198,7 @@ class CSP_Notifications {
             sprintf(__('Details: %s', 'csp-reporting'), admin_url('options-general.php?page=csp-reporting&tab=violations')),
         ));
 
-        if ($settings['email_enabled'] && !empty($settings['recipients'])) {
+        if ($settings['email_enabled'] && ! empty($settings['recipients'])) {
             wp_mail($settings['recipients'], $subject, $body);
         }
 
@@ -211,15 +211,15 @@ class CSP_Notifications {
      * @param string $url
      * @param string $text
      */
-    private function send_webhook($url, $text) {
+    private function send_webhook( $url, $text ) {
         if ($url === '') {
             return;
         }
 
         wp_remote_post($url, array(
             'timeout' => 5,
-            'headers' => array('Content-Type' => 'application/json'),
-            'body' => wp_json_encode(array('text' => $text)),
+            'headers' => array( 'Content-Type' => 'application/json' ),
+            'body' => wp_json_encode(array( 'text' => $text )),
         ));
     }
 }

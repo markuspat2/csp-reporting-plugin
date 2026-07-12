@@ -14,7 +14,7 @@
  */
 
 // Prevent direct access
-if (!defined('ABSPATH')) {
+if ( ! defined('ABSPATH')) {
     exit;
 }
 
@@ -80,10 +80,10 @@ class CSP_Reporting_Plugin {
      * Constructor
      */
     private function __construct() {
-        register_activation_hook(__FILE__, array($this, 'activate'));
-        register_deactivation_hook(__FILE__, array($this, 'deactivate'));
+        register_activation_hook(__FILE__, array( $this, 'activate' ));
+        register_deactivation_hook(__FILE__, array( $this, 'deactivate' ));
 
-        add_action('plugins_loaded', array($this, 'setup'));
+        add_action('plugins_loaded', array( $this, 'setup' ));
     }
 
     /**
@@ -96,9 +96,9 @@ class CSP_Reporting_Plugin {
     public function setup() {
         load_plugin_textdomain('csp-reporting', false, dirname(plugin_basename(__FILE__)) . '/languages');
 
-        $this->logger = new CSP_Logger();
-        $this->database = new CSP_Database();
-        $this->reporter = new CSP_Reporter($this->logger, $this->database);
+        $this->logger        = new CSP_Logger();
+        $this->database      = new CSP_Database();
+        $this->reporter      = new CSP_Reporter($this->logger, $this->database);
         $this->notifications = new CSP_Notifications($this->database);
 
         if (is_admin()) {
@@ -107,15 +107,20 @@ class CSP_Reporting_Plugin {
             $this->admin = new CSP_Admin($this->logger, $this->reporter, $this->database);
         }
 
+        if (defined('WP_CLI') && WP_CLI) {
+            require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-cli.php';
+            WP_CLI::add_command('csp', new CSP_CLI($this->database, $this->reporter));
+        }
+
         // Report endpoint: wp-json/csp-reporting/v1/report
-        add_action('rest_api_init', array($this->reporter, 'register_routes'));
+        add_action('rest_api_init', array( $this->reporter, 'register_routes' ));
 
         // Send CSP headers before any output.
-        add_action('send_headers', array($this, 'send_csp_headers'));
-        add_action('admin_init', array($this, 'maybe_send_admin_csp_headers'), 1);
+        add_action('send_headers', array( $this, 'send_csp_headers' ));
+        add_action('admin_init', array( $this, 'maybe_send_admin_csp_headers' ), 1);
 
         // Scheduled log cleanup.
-        add_action('csp_cleanup_logs', array($this, 'cleanup_old_logs'));
+        add_action('csp_cleanup_logs', array( $this, 'cleanup_old_logs' ));
     }
 
     /**
@@ -150,7 +155,7 @@ class CSP_Reporting_Plugin {
         add_option('csp_reporting_options', $default_options);
 
         // Schedule cleanup task
-        if (!wp_next_scheduled('csp_cleanup_logs')) {
+        if ( ! wp_next_scheduled('csp_cleanup_logs')) {
             wp_schedule_event(time(), 'daily', 'csp_cleanup_logs');
         }
 
@@ -174,7 +179,7 @@ class CSP_Reporting_Plugin {
      * Create log directory
      */
     private function create_log_directory() {
-        if (!file_exists(CSP_REPORTING_LOG_DIR)) {
+        if ( ! file_exists(CSP_REPORTING_LOG_DIR)) {
             wp_mkdir_p(CSP_REPORTING_LOG_DIR);
 
             // Create .htaccess to protect log files
@@ -224,7 +229,7 @@ class CSP_Reporting_Plugin {
             return;
         }
 
-        $policy = new CSP_Policy();
+        $policy  = new CSP_Policy();
         $headers = $policy->get_headers(CSP_Utils::get_report_endpoint_url());
 
         foreach ($headers as $name => $value) {
@@ -237,8 +242,8 @@ class CSP_Reporting_Plugin {
      * retention window.
      */
     public function cleanup_old_logs() {
-        $options = get_option('csp_reporting_options', array());
-        $retention_days = !empty($options['log_retention_days']) ? intval($options['log_retention_days']) : 30;
+        $options        = get_option('csp_reporting_options', array());
+        $retention_days = ! empty($options['log_retention_days']) ? intval($options['log_retention_days']) : 30;
 
         $this->logger->clean_old_logs($retention_days);
         $this->database->prune($retention_days);

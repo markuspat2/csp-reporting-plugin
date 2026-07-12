@@ -7,15 +7,15 @@
  * policy mutations like "allow this source".
  */
 
-if (!defined('ABSPATH')) {
+if ( ! defined('ABSPATH')) {
     exit;
 }
 
 class CSP_Policy {
 
     const MODE_REPORT_ONLY = 'report-only';
-    const MODE_ENFORCE = 'enforce';
-    const MODE_BOTH = 'both';
+    const MODE_ENFORCE     = 'enforce';
+    const MODE_BOTH        = 'both';
 
     /**
      * Directives that take a source list.
@@ -65,11 +65,11 @@ class CSP_Policy {
     public function get_directives() {
         $options = get_option('csp_reporting_options', array());
 
-        if (!empty($options['csp_policy_directives']) && is_array($options['csp_policy_directives'])) {
+        if ( ! empty($options['csp_policy_directives']) && is_array($options['csp_policy_directives'])) {
             return $options['csp_policy_directives'];
         }
 
-        $legacy = !empty($options['csp_policy']) ? $options['csp_policy'] : '';
+        $legacy = ! empty($options['csp_policy']) ? $options['csp_policy'] : '';
 
         return self::parse_policy_text($legacy);
     }
@@ -81,9 +81,9 @@ class CSP_Policy {
      */
     public function get_mode() {
         $options = get_option('csp_reporting_options', array());
-        $mode = isset($options['csp_mode']) ? $options['csp_mode'] : self::MODE_REPORT_ONLY;
+        $mode    = isset($options['csp_mode']) ? $options['csp_mode'] : self::MODE_REPORT_ONLY;
 
-        $valid = array(self::MODE_REPORT_ONLY, self::MODE_ENFORCE, self::MODE_BOTH);
+        $valid = array( self::MODE_REPORT_ONLY, self::MODE_ENFORCE, self::MODE_BOTH );
 
         return in_array($mode, $valid, true) ? $mode : self::MODE_REPORT_ONLY;
     }
@@ -94,7 +94,7 @@ class CSP_Policy {
      * @param string $text
      * @return array
      */
-    public static function parse_policy_text($text) {
+    public static function parse_policy_text( $text ) {
         $directives = array();
 
         foreach (explode(';', (string) $text) as $part) {
@@ -104,8 +104,8 @@ class CSP_Policy {
             }
 
             $tokens = explode(' ', $part, 2);
-            $name = strtolower($tokens[0]);
-            $value = isset($tokens[1]) ? trim($tokens[1]) : '';
+            $name   = strtolower($tokens[0]);
+            $value  = isset($tokens[1]) ? trim($tokens[1]) : '';
 
             if ($name === 'report-uri' || $name === 'report-to') {
                 continue; // The plugin manages reporting directives itself.
@@ -128,7 +128,7 @@ class CSP_Policy {
      *                        so extensions can vary the policy per header.
      * @return string
      */
-    public function build_policy_string($context = 'report-only') {
+    public function build_policy_string( $context = 'report-only' ) {
         $directives = $this->get_directives();
 
         /**
@@ -141,8 +141,8 @@ class CSP_Policy {
 
         $parts = array();
 
-        foreach ((array) $directives as $name => $value) {
-            $name = strtolower(trim($name));
+        foreach ( (array) $directives as $name => $value) {
+            $name  = strtolower(trim($name));
             $value = trim(preg_replace('/\s+/', ' ', (string) $value));
 
             if ($name === '') {
@@ -156,19 +156,38 @@ class CSP_Policy {
     }
 
     /**
+     * The endpoint name used in Reporting-Endpoints / report-to.
+     */
+    const REPORT_TO_GROUP = 'csp-endpoint';
+
+    /**
+     * Reporting directives appended to every policy: legacy report-uri for
+     * broad support plus report-to for the modern Reporting API (browsers
+     * that understand report-to ignore report-uri).
+     *
+     * @param string $report_url
+     * @return string
+     */
+    private function reporting_directives( $report_url ) {
+        return '; report-uri ' . $report_url . '; report-to ' . self::REPORT_TO_GROUP;
+    }
+
+    /**
      * Get the CSP headers to send, as name => value.
+     *
+     * Includes a Reporting-Endpoints header defining the report-to group.
      *
      * @param string $report_url Violation report endpoint URL.
      * @return array
      */
-    public function get_headers($report_url) {
-        $mode = $this->get_mode();
+    public function get_headers( $report_url ) {
+        $mode    = $this->get_mode();
         $headers = array();
 
         if ($mode === self::MODE_ENFORCE || $mode === self::MODE_BOTH) {
             $policy = $this->build_policy_string('enforce');
             if ($policy !== '') {
-                $headers['Content-Security-Policy'] = $policy . '; report-uri ' . $report_url;
+                $headers['Content-Security-Policy'] = $policy . $this->reporting_directives($report_url);
             }
         }
 
@@ -180,14 +199,14 @@ class CSP_Policy {
 
             if ($mode === self::MODE_BOTH) {
                 $options = get_option('csp_reporting_options', array());
-                if (!empty($options['csp_test_policy'])) {
+                if ( ! empty($options['csp_test_policy'])) {
                     $test_directives = self::parse_policy_text($options['csp_test_policy']);
 
                     /** This filter is documented in includes/class-csp-policy.php */
                     $test_directives = apply_filters('csp_policy_directives', $test_directives, 'report-only');
 
                     $parts = array();
-                    foreach ((array) $test_directives as $name => $value) {
+                    foreach ( (array) $test_directives as $name => $value) {
                         $parts[] = $value === '' ? $name : $name . ' ' . $value;
                     }
                     $policy = implode('; ', $parts);
@@ -199,8 +218,12 @@ class CSP_Policy {
             }
 
             if ($policy !== '') {
-                $headers['Content-Security-Policy-Report-Only'] = $policy . '; report-uri ' . $report_url;
+                $headers['Content-Security-Policy-Report-Only'] = $policy . $this->reporting_directives($report_url);
             }
+        }
+
+        if ( ! empty($headers)) {
+            $headers['Reporting-Endpoints'] = self::REPORT_TO_GROUP . '="' . $report_url . '"';
         }
 
         return $headers;
@@ -215,8 +238,8 @@ class CSP_Policy {
      * @param string $violated_directive
      * @return string|false Base directive, or false when not editable.
      */
-    public static function base_directive($violated_directive) {
-        $name = strtolower(trim(explode(' ', trim((string) $violated_directive))[0]));
+    public static function base_directive( $violated_directive ) {
+        $name = strtolower(trim(explode(' ', trim( (string) $violated_directive))[0]));
         $name = preg_replace('/-(elem|attr)$/', '', $name);
 
         return in_array($name, self::source_directives(), true) ? $name : false;
@@ -229,10 +252,10 @@ class CSP_Policy {
      * @return string|false Origin (scheme://host[:port]), or false for
      *                      inline/eval/data pseudo-URIs.
      */
-    public static function source_from_blocked_uri($blocked_uri) {
-        $blocked_uri = trim((string) $blocked_uri);
+    public static function source_from_blocked_uri( $blocked_uri ) {
+        $blocked_uri = trim( (string) $blocked_uri);
 
-        if ($blocked_uri === '' || in_array($blocked_uri, array('inline', 'eval', 'wasm-eval', 'self', 'unsafe-eval'), true)) {
+        if ($blocked_uri === '' || in_array($blocked_uri, array( 'inline', 'eval', 'wasm-eval', 'self', 'unsafe-eval' ), true)) {
             return false;
         }
 
@@ -242,13 +265,13 @@ class CSP_Policy {
             return false;
         }
 
-        if (!in_array(strtolower($parts['scheme']), array('http', 'https', 'ws', 'wss'), true)) {
+        if ( ! in_array(strtolower($parts['scheme']), array( 'http', 'https', 'ws', 'wss' ), true)) {
             return false;
         }
 
         $origin = strtolower($parts['scheme']) . '://' . strtolower($parts['host']);
 
-        if (!empty($parts['port'])) {
+        if ( ! empty($parts['port'])) {
             $origin .= ':' . (int) $parts['port'];
         }
 
@@ -262,23 +285,23 @@ class CSP_Policy {
      * @param string $source Source expression (an origin).
      * @return bool True when added, false when invalid or already present.
      */
-    public function add_source($directive, $source) {
-        if (!in_array($directive, self::source_directives(), true) || $source === '') {
+    public function add_source( $directive, $source ) {
+        if ( ! in_array($directive, self::source_directives(), true) || $source === '') {
             return false;
         }
 
         $directives = $this->get_directives();
-        $current = isset($directives[$directive]) ? $directives[$directive] : '';
-        $sources = $current === '' ? array() : explode(' ', $current);
+        $current    = isset($directives[$directive]) ? $directives[$directive] : '';
+        $sources    = $current === '' ? array() : explode(' ', $current);
 
         if (in_array($source, $sources, true)) {
             return false;
         }
 
-        $sources[] = $source;
+        $sources[]              = $source;
         $directives[$directive] = implode(' ', $sources);
 
-        $options = get_option('csp_reporting_options', array());
+        $options                          = get_option('csp_reporting_options', array());
         $options['csp_policy_directives'] = $directives;
         update_option('csp_reporting_options', $options);
 

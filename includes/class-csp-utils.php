@@ -5,7 +5,7 @@
  * Shared helpers used across the plugin.
  */
 
-if (!defined('ABSPATH')) {
+if ( ! defined('ABSPATH')) {
     exit;
 }
 
@@ -49,16 +49,16 @@ class CSP_Utils {
      * @param string[] $patterns
      * @return bool
      */
-    public static function matches_ignore_patterns($csp_report, $patterns) {
+    public static function matches_ignore_patterns( $csp_report, $patterns ) {
         $haystacks = array();
 
-        foreach (array('blocked-uri', 'source-file') as $field) {
-            if (!empty($csp_report[$field]) && is_string($csp_report[$field])) {
+        foreach (array( 'blocked-uri', 'source-file' ) as $field) {
+            if ( ! empty($csp_report[$field]) && is_string($csp_report[$field])) {
                 $haystacks[] = strtolower($csp_report[$field]);
             }
         }
 
-        foreach ((array) $patterns as $pattern) {
+        foreach ( (array) $patterns as $pattern) {
             $pattern = strtolower(trim($pattern));
             if ($pattern === '') {
                 continue;
@@ -82,7 +82,7 @@ class CSP_Utils {
     public static function get_ignore_patterns() {
         $options = get_option('csp_reporting_options', array());
 
-        if (!array_key_exists('ignore_patterns', $options)) {
+        if ( ! array_key_exists('ignore_patterns', $options)) {
             $patterns = self::default_ignore_patterns();
         } else {
             $patterns = $options['ignore_patterns'];
@@ -97,7 +97,7 @@ class CSP_Utils {
          * @param string[] $patterns Case-insensitive substrings matched
          *                           against blocked-uri and source-file.
          */
-        return apply_filters('csp_reporting_ignore_patterns', array_values(array_filter((array) $patterns)));
+        return apply_filters('csp_reporting_ignore_patterns', array_values(array_filter( (array) $patterns)));
     }
 
     /**
@@ -122,7 +122,7 @@ class CSP_Utils {
          */
         $trusted_headers = apply_filters('csp_reporting_trusted_ip_headers', array());
 
-        foreach ((array) $trusted_headers as $key) {
+        foreach ( (array) $trusted_headers as $key) {
             if (empty($_SERVER[$key])) {
                 continue;
             }

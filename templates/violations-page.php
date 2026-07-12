@@ -6,13 +6,13 @@
  * CSP_Admin::render_violations_page(), so $this and $list_table are in scope.
  */
 
-if (!defined('ABSPATH')) {
+if ( ! defined('ABSPATH')) {
     exit;
 }
 ?>
 
 <div class="wrap csp-admin-page">
-    <h1><?php _e('CSP Violations', 'csp-reporting'); ?></h1>
+    <h1><?php esc_html_e('CSP Violations', 'csp-reporting'); ?></h1>
 
     <?php $this->render_tabs('violations'); ?>
 
@@ -26,10 +26,10 @@ if (!defined('ABSPATH')) {
     ?>
     <p class="csp-export-actions">
         <a href="<?php echo esc_url(add_query_arg('format', 'csv', $export_base)); ?>" class="button button-secondary">
-            <?php _e('Export CSV', 'csp-reporting'); ?>
+            <?php esc_html_e('Export CSV', 'csp-reporting'); ?>
         </a>
         <a href="<?php echo esc_url(add_query_arg('format', 'json', $export_base)); ?>" class="button button-secondary">
-            <?php _e('Export JSON', 'csp-reporting'); ?>
+            <?php esc_html_e('Export JSON', 'csp-reporting'); ?>
         </a>
     </p>
 

@@ -6,7 +6,7 @@
  * pruning, and migration of legacy 1.x file logs.
  */
 
-if (!defined('ABSPATH')) {
+if ( ! defined('ABSPATH')) {
     exit;
 }
 
@@ -18,7 +18,7 @@ class CSP_Database {
     const DB_VERSION = '1';
 
     const DB_VERSION_OPTION = 'csp_reporting_db_version';
-    const MIGRATED_OPTION = 'csp_reporting_logs_migrated';
+    const MIGRATED_OPTION   = 'csp_reporting_logs_migrated';
 
     /**
      * Get the violations table name.
@@ -38,7 +38,7 @@ class CSP_Database {
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
-        $table = self::table_name();
+        $table           = self::table_name();
         $charset_collate = $wpdb->get_charset_collate();
 
         $sql = "CREATE TABLE {$table} (
@@ -74,12 +74,12 @@ class CSP_Database {
      *
      * @param CSP_Logger $logger Used to parse legacy log files.
      */
-    public function maybe_upgrade($logger) {
+    public function maybe_upgrade( $logger ) {
         if (get_option(self::DB_VERSION_OPTION) !== self::DB_VERSION) {
             self::install();
         }
 
-        if (!get_option(self::MIGRATED_OPTION)) {
+        if ( ! get_option(self::MIGRATED_OPTION)) {
             $this->migrate_legacy_logs($logger);
             update_option(self::MIGRATED_OPTION, 1);
         }
@@ -97,7 +97,7 @@ class CSP_Database {
      * @param string $document_uri
      * @return string
      */
-    public static function report_hash($directive, $blocked_uri, $document_uri) {
+    public static function report_hash( $directive, $blocked_uri, $document_uri ) {
         return sha1($directive . '|' . $blocked_uri . '|' . $document_uri);
     }
 
@@ -119,10 +119,10 @@ class CSP_Database {
      * }
      * @return bool
      */
-    public function insert_violation($violation) {
+    public function insert_violation( $violation ) {
         global $wpdb;
 
-        $defaults = array(
+        $defaults  = array(
             'severity' => 'low',
             'directive' => '',
             'blocked_uri' => '',
@@ -137,7 +137,7 @@ class CSP_Database {
         );
         $violation = wp_parse_args($violation, $defaults);
 
-        $hash = self::report_hash($violation['directive'], $violation['blocked_uri'], $violation['document_uri']);
+        $hash  = self::report_hash($violation['directive'], $violation['blocked_uri'], $violation['document_uri']);
         $table = self::table_name();
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
@@ -176,25 +176,25 @@ class CSP_Database {
      * @param array $args
      * @return string Prepared WHERE clause (without the WHERE keyword).
      */
-    private function build_where($args) {
+    private function build_where( $args ) {
         global $wpdb;
 
-        $where = array('1=1');
+        $where = array( '1=1' );
 
-        if (!empty($args['severity'])) {
+        if ( ! empty($args['severity'])) {
             $where[] = $wpdb->prepare('severity = %s', $args['severity']);
         }
 
-        if (!empty($args['directive'])) {
+        if ( ! empty($args['directive'])) {
             $where[] = $wpdb->prepare('directive = %s', $args['directive']);
         }
 
-        if (!empty($args['search'])) {
-            $like = '%' . $wpdb->esc_like($args['search']) . '%';
+        if ( ! empty($args['search'])) {
+            $like    = '%' . $wpdb->esc_like($args['search']) . '%';
             $where[] = $wpdb->prepare('(blocked_uri LIKE %s OR document_uri LIKE %s OR source_file LIKE %s)', $like, $like, $like);
         }
 
-        if (!empty($args['since'])) {
+        if ( ! empty($args['since'])) {
             $where[] = $wpdb->prepare('last_seen >= %s', $args['since']);
         }
 
@@ -207,7 +207,7 @@ class CSP_Database {
      * @param array $args severity, directive, search, since, orderby, order, per_page, paged
      * @return array[] Rows as associative arrays.
      */
-    public function get_violations($args = array()) {
+    public function get_violations( $args = array() ) {
         global $wpdb;
 
         $defaults = array(
@@ -216,14 +216,14 @@ class CSP_Database {
             'per_page' => 20,
             'paged' => 1,
         );
-        $args = wp_parse_args($args, $defaults);
+        $args     = wp_parse_args($args, $defaults);
 
-        $allowed_orderby = array('severity', 'directive', 'hit_count', 'last_seen', 'first_seen', 'id');
-        $orderby = in_array($args['orderby'], $allowed_orderby, true) ? $args['orderby'] : 'last_seen';
-        $order = strtoupper($args['order']) === 'ASC' ? 'ASC' : 'DESC';
+        $allowed_orderby = array( 'severity', 'directive', 'hit_count', 'last_seen', 'first_seen', 'id' );
+        $orderby         = in_array($args['orderby'], $allowed_orderby, true) ? $args['orderby'] : 'last_seen';
+        $order           = strtoupper($args['order']) === 'ASC' ? 'ASC' : 'DESC';
 
         $per_page = max(1, (int) $args['per_page']);
-        $offset = (max(1, (int) $args['paged']) - 1) * $per_page;
+        $offset   = ( max(1, (int) $args['paged']) - 1 ) * $per_page;
 
         $table = self::table_name();
         $where = $this->build_where($args);
@@ -241,7 +241,7 @@ class CSP_Database {
      * @param array $args
      * @return int
      */
-    public function count_violations($args = array()) {
+    public function count_violations( $args = array() ) {
         global $wpdb;
 
         $table = self::table_name();
@@ -257,7 +257,7 @@ class CSP_Database {
      * @param int $id
      * @return array|null
      */
-    public function get_violation($id) {
+    public function get_violation( $id ) {
         global $wpdb;
 
         $table = self::table_name();
@@ -272,7 +272,7 @@ class CSP_Database {
      * @param int[] $ids
      * @return int Rows deleted.
      */
-    public function delete_violations($ids) {
+    public function delete_violations( $ids ) {
         global $wpdb;
 
         $ids = array_filter(array_map('intval', (array) $ids));
@@ -280,10 +280,10 @@ class CSP_Database {
             return 0;
         }
 
-        $table = self::table_name();
+        $table        = self::table_name();
         $placeholders = implode(',', array_fill(0, count($ids), '%d'));
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- placeholders are %d, built above.
         return (int) $wpdb->query($wpdb->prepare("DELETE FROM {$table} WHERE id IN ({$placeholders})", $ids));
     }
 
@@ -305,11 +305,11 @@ class CSP_Database {
      * @param int $retention_days
      * @return int Rows deleted.
      */
-    public function prune($retention_days) {
+    public function prune( $retention_days ) {
         global $wpdb;
 
-        $cutoff = gmdate('Y-m-d H:i:s', time() - ((int) $retention_days * DAY_IN_SECONDS));
-        $table = self::table_name();
+        $cutoff = gmdate('Y-m-d H:i:s', time() - ( (int) $retention_days * DAY_IN_SECONDS ));
+        $table  = self::table_name();
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         return (int) $wpdb->query($wpdb->prepare("DELETE FROM {$table} WHERE last_seen < %s", $cutoff));
@@ -321,7 +321,7 @@ class CSP_Database {
      * @param string $since MySQL datetime.
      * @return int
      */
-    public function count_high_since($since) {
+    public function count_high_since( $since ) {
         global $wpdb;
 
         $table = self::table_name();
@@ -351,16 +351,16 @@ class CSP_Database {
      * @param int $days
      * @return array
      */
-    public function get_stats($days = 7) {
+    public function get_stats( $days = 7 ) {
         global $wpdb;
 
         $table = self::table_name();
-        $since = gmdate('Y-m-d H:i:s', time() - ((int) $days * DAY_IN_SECONDS));
+        $since = gmdate('Y-m-d H:i:s', time() - ( (int) $days * DAY_IN_SECONDS ));
 
         $stats = array(
             'total_hits' => 0,
             'unique_patterns' => 0,
-            'by_severity' => array('low' => 0, 'medium' => 0, 'high' => 0),
+            'by_severity' => array( 'low' => 0, 'medium' => 0, 'high' => 0 ),
             'top_blocked' => array(),
             'by_day' => array(),
         );
@@ -372,7 +372,7 @@ class CSP_Database {
         ), ARRAY_A);
 
         if ($totals) {
-            $stats['total_hits'] = (int) $totals['hits'];
+            $stats['total_hits']      = (int) $totals['hits'];
             $stats['unique_patterns'] = (int) $totals['patterns'];
         }
 
@@ -382,7 +382,7 @@ class CSP_Database {
             $since
         ), ARRAY_A);
 
-        foreach ((array) $severities as $row) {
+        foreach ( (array) $severities as $row) {
             if (isset($stats['by_severity'][$row['severity']])) {
                 $stats['by_severity'][$row['severity']] = (int) $row['hits'];
             }
@@ -405,12 +405,12 @@ class CSP_Database {
         ), ARRAY_A);
 
         $by_day = array();
-        foreach ((array) $daily as $row) {
+        foreach ( (array) $daily as $row) {
             $by_day[$row['day']] = (int) $row['hits'];
         }
 
         for ($i = $days - 1; $i >= 0; $i--) {
-            $day = gmdate('Y-m-d', time() - ($i * DAY_IN_SECONDS));
+            $day                   = gmdate('Y-m-d', time() - ( $i * DAY_IN_SECONDS ));
             $stats['by_day'][$day] = isset($by_day[$day]) ? $by_day[$day] : 0;
         }
 
@@ -425,12 +425,12 @@ class CSP_Database {
      * @param CSP_Logger $logger
      * @return int Entries imported.
      */
-    public function migrate_legacy_logs($logger) {
+    public function migrate_legacy_logs( $logger ) {
         $imported = 0;
 
         foreach ($logger->get_log_files() as $file) {
             foreach ($logger->read_log_entries($file) as $entry) {
-                if (!isset($entry['report_data']['csp-report'])) {
+                if ( ! isset($entry['report_data']['csp-report'])) {
                     continue;
                 }
 
@@ -454,7 +454,7 @@ class CSP_Database {
                     'seen_at' => isset($entry['timestamp']) ? $entry['timestamp'] : current_time('mysql'),
                 ));
 
-                $imported++;
+                ++$imported;
             }
         }
 

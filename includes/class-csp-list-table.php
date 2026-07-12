@@ -5,11 +5,11 @@
  * WP_List_Table for browsing, filtering, and bulk-managing violations.
  */
 
-if (!defined('ABSPATH')) {
+if ( ! defined('ABSPATH')) {
     exit;
 }
 
-if (!class_exists('WP_List_Table')) {
+if ( ! class_exists('WP_List_Table')) {
     require_once ABSPATH . 'wp-admin/includes/class-wp-list-table.php';
 }
 
@@ -25,7 +25,7 @@ class CSP_Violations_List_Table extends WP_List_Table {
      *
      * @param CSP_Database $database
      */
-    public function __construct($database) {
+    public function __construct( $database ) {
         parent::__construct(array(
             'singular' => 'csp_violation',
             'plural' => 'csp_violations',
@@ -43,15 +43,15 @@ class CSP_Violations_List_Table extends WP_List_Table {
     public function get_filter_args() {
         $args = array();
 
-        if (!empty($_REQUEST['severity'])) {
+        if ( ! empty($_REQUEST['severity'])) {
             $args['severity'] = sanitize_key($_REQUEST['severity']);
         }
 
-        if (!empty($_REQUEST['directive'])) {
+        if ( ! empty($_REQUEST['directive'])) {
             $args['directive'] = sanitize_text_field(wp_unslash($_REQUEST['directive']));
         }
 
-        if (!empty($_REQUEST['s'])) {
+        if ( ! empty($_REQUEST['s'])) {
             $args['search'] = sanitize_text_field(wp_unslash($_REQUEST['s']));
         }
 
@@ -72,10 +72,10 @@ class CSP_Violations_List_Table extends WP_List_Table {
 
     protected function get_sortable_columns() {
         return array(
-            'severity' => array('severity', false),
-            'directive' => array('directive', false),
-            'hit_count' => array('hit_count', true),
-            'last_seen' => array('last_seen', true),
+            'severity' => array( 'severity', false ),
+            'directive' => array( 'directive', false ),
+            'hit_count' => array( 'hit_count', true ),
+            'last_seen' => array( 'last_seen', true ),
         );
     }
 
@@ -90,18 +90,18 @@ class CSP_Violations_List_Table extends WP_List_Table {
      *
      * @param string $which
      */
-    protected function extra_tablenav($which) {
+    protected function extra_tablenav( $which ) {
         if ($which !== 'top') {
             return;
         }
 
-        $severity = isset($_REQUEST['severity']) ? sanitize_key($_REQUEST['severity']) : '';
+        $severity  = isset($_REQUEST['severity']) ? sanitize_key($_REQUEST['severity']) : '';
         $directive = isset($_REQUEST['directive']) ? sanitize_text_field(wp_unslash($_REQUEST['directive'])) : '';
         ?>
         <div class="alignleft actions">
             <select name="severity">
                 <option value=""><?php esc_html_e('All severities', 'csp-reporting'); ?></option>
-                <?php foreach (array('high', 'medium', 'low') as $level) : ?>
+                <?php foreach (array( 'high', 'medium', 'low' ) as $level) : ?>
                     <option value="<?php echo esc_attr($level); ?>" <?php selected($severity, $level); ?>>
                         <?php echo esc_html(ucfirst($level)); ?>
                     </option>
@@ -123,17 +123,17 @@ class CSP_Violations_List_Table extends WP_List_Table {
     public function prepare_items() {
         $per_page = $this->get_items_per_page('csp_violations_per_page', 20);
 
-        $args = $this->get_filter_args();
-        $args['orderby'] = isset($_REQUEST['orderby']) ? sanitize_key($_REQUEST['orderby']) : 'last_seen';
-        $args['order'] = isset($_REQUEST['order']) ? sanitize_key($_REQUEST['order']) : 'DESC';
+        $args             = $this->get_filter_args();
+        $args['orderby']  = isset($_REQUEST['orderby']) ? sanitize_key($_REQUEST['orderby']) : 'last_seen';
+        $args['order']    = isset($_REQUEST['order']) ? sanitize_key($_REQUEST['order']) : 'DESC';
         $args['per_page'] = $per_page;
-        $args['paged'] = $this->get_pagenum();
+        $args['paged']    = $this->get_pagenum();
 
         $total_items = $this->database->count_violations($args);
 
         $this->items = $this->database->get_violations($args);
 
-        $this->_column_headers = array($this->get_columns(), array(), $this->get_sortable_columns());
+        $this->_column_headers = array( $this->get_columns(), array(), $this->get_sortable_columns() );
 
         $this->set_pagination_args(array(
             'total_items' => $total_items,
@@ -142,11 +142,11 @@ class CSP_Violations_List_Table extends WP_List_Table {
         ));
     }
 
-    protected function column_cb($item) {
+    protected function column_cb( $item ) {
         return sprintf('<input type="checkbox" name="violation_ids[]" value="%d" />', (int) $item['id']);
     }
 
-    protected function column_severity($item) {
+    protected function column_severity( $item ) {
         $severity = $item['severity'];
         return sprintf(
             '<span class="csp-severity csp-severity-%s">%s</span>',
@@ -155,17 +155,17 @@ class CSP_Violations_List_Table extends WP_List_Table {
         );
     }
 
-    protected function column_directive($item) {
+    protected function column_directive( $item ) {
         return '<code>' . esc_html($item['directive']) . '</code>';
     }
 
-    protected function column_blocked_uri($item) {
-        $uri = $item['blocked_uri'];
+    protected function column_blocked_uri( $item ) {
+        $uri     = $item['blocked_uri'];
         $display = strlen($uri) > 80 ? substr($uri, 0, 77) . '…' : $uri;
 
         $out = '<span title="' . esc_attr($uri) . '">' . esc_html($display !== '' ? $display : __('(inline)', 'csp-reporting')) . '</span>';
 
-        if (!empty($item['source_file'])) {
+        if ( ! empty($item['source_file'])) {
             $out .= '<br /><small>' . esc_html(sprintf(
                 /* translators: 1: source file, 2: line number */
                 __('at %1$s:%2$d', 'csp-reporting'),
@@ -177,7 +177,7 @@ class CSP_Violations_List_Table extends WP_List_Table {
         $actions = array();
 
         $directive = CSP_Policy::base_directive($item['directive']);
-        $source = CSP_Policy::source_from_blocked_uri($item['blocked_uri']);
+        $source    = CSP_Policy::source_from_blocked_uri($item['blocked_uri']);
 
         if ($directive && $source) {
             $actions['allow'] = sprintf(
@@ -195,17 +195,17 @@ class CSP_Violations_List_Table extends WP_List_Table {
         return $out . $this->row_actions($actions);
     }
 
-    protected function column_document_uri($item) {
-        $uri = $item['document_uri'];
+    protected function column_document_uri( $item ) {
+        $uri     = $item['document_uri'];
         $display = strlen($uri) > 60 ? substr($uri, 0, 57) . '…' : $uri;
         return '<span title="' . esc_attr($uri) . '">' . esc_html($display) . '</span>';
     }
 
-    protected function column_hit_count($item) {
-        return esc_html(number_format_i18n((int) $item['hit_count']));
+    protected function column_hit_count( $item ) {
+        return esc_html(number_format_i18n( (int) $item['hit_count']));
     }
 
-    protected function column_last_seen($item) {
+    protected function column_last_seen( $item ) {
         return esc_html(sprintf(
             /* translators: 1: last seen datetime, 2: first seen date */
             __('%1$s (first: %2$s)', 'csp-reporting'),
@@ -214,7 +214,7 @@ class CSP_Violations_List_Table extends WP_List_Table {
         ));
     }
 
-    protected function column_default($item, $column_name) {
+    protected function column_default( $item, $column_name ) {
         return isset($item[$column_name]) ? esc_html($item[$column_name]) : '';
     }
 

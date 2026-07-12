@@ -6,7 +6,7 @@
  * them, and hands them to the logger.
  */
 
-if (!defined('ABSPATH')) {
+if ( ! defined('ABSPATH')) {
     exit;
 }
 
@@ -43,8 +43,8 @@ class CSP_Reporter {
      * @param CSP_Logger|null $logger
      * @param CSP_Database|null $database
      */
-    public function __construct($logger = null, $database = null) {
-        $this->logger = $logger instanceof CSP_Logger ? $logger : new CSP_Logger();
+    public function __construct( $logger = null, $database = null ) {
+        $this->logger   = $logger instanceof CSP_Logger ? $logger : new CSP_Logger();
         $this->database = $database instanceof CSP_Database ? $database : new CSP_Database();
     }
 
@@ -60,7 +60,7 @@ class CSP_Reporter {
     public function register_routes() {
         register_rest_route('csp-reporting/v1', '/report', array(
             'methods' => WP_REST_Server::CREATABLE,
-            'callback' => array($this, 'handle_report'),
+            'callback' => array( $this, 'handle_report' ),
             'permission_callback' => '__return_true',
         ));
     }
@@ -71,7 +71,7 @@ class CSP_Reporter {
      * @param WP_REST_Request $request
      * @return WP_REST_Response
      */
-    public function handle_report($request) {
+    public function handle_report( $request ) {
         $body = $request->get_body();
 
         if (empty($body)) {
@@ -82,25 +82,84 @@ class CSP_Reporter {
             return $this->error_response('Payload too large', 413);
         }
 
-        if (!$this->check_rate_limit()) {
+        if ( ! $this->check_rate_limit()) {
             return $this->error_response('Too many reports', 429);
         }
 
-        // Browsers send Content-Type: application/csp-report, which the REST
-        // API does not parse into params — decode the raw body ourselves.
-        $report_data = json_decode($body, true);
+        // Browsers send Content-Type: application/csp-report (report-uri) or
+        // application/reports+json (report-to), neither of which the REST
+        // API parses into params — decode the raw body ourselves.
+        $decoded = json_decode($body, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
             return $this->error_response('Invalid JSON data', 400);
         }
 
-        if (!$this->validate_report_structure($report_data)) {
+        $reports = $this->extract_reports($decoded);
+
+        if (empty($reports)) {
             return $this->error_response('Invalid report structure', 400);
         }
 
-        $this->process_report($report_data);
+        foreach ($reports as $report_data) {
+            $this->process_report($report_data);
+        }
 
         return new WP_REST_Response(null, 204);
+    }
+
+    /**
+     * Normalize a decoded payload into a list of legacy-shaped reports.
+     *
+     * Handles both formats:
+     * - report-uri: a single {"csp-report": {...}} object.
+     * - report-to (Reporting API): a batch array of report objects with
+     *   camelCase bodies.
+     *
+     * @param mixed $decoded
+     * @return array[] Zero or more {"csp-report": {...}} arrays.
+     */
+    public function extract_reports( $decoded ) {
+        if ( ! is_array($decoded)) {
+            return array();
+        }
+
+        // Legacy single report.
+        if (isset($decoded['csp-report'])) {
+            return $this->validate_report_structure($decoded) ? array( $decoded ) : array();
+        }
+
+        // Reporting API batch.
+        $reports = array();
+
+        foreach ($decoded as $item) {
+            if ( ! is_array($item) || ! isset($item['type'], $item['body']) || $item['type'] !== 'csp-violation' || ! is_array($item['body'])) {
+                continue;
+            }
+
+            $body = $item['body'];
+
+            $report = array(
+                'csp-report' => array(
+                    'document-uri' => isset($body['documentURL']) ? $body['documentURL'] : ( isset($item['url']) ? $item['url'] : '' ),
+                    'violated-directive' => isset($body['effectiveDirective']) ? $body['effectiveDirective'] : '',
+                    'effective-directive' => isset($body['effectiveDirective']) ? $body['effectiveDirective'] : '',
+                    'original-policy' => isset($body['originalPolicy']) ? $body['originalPolicy'] : '',
+                    'disposition' => isset($body['disposition']) ? $body['disposition'] : 'report',
+                    'blocked-uri' => isset($body['blockedURL']) ? $body['blockedURL'] : '',
+                    'status-code' => isset($body['statusCode']) ? (int) $body['statusCode'] : 0,
+                    'source-file' => isset($body['sourceFile']) ? $body['sourceFile'] : '',
+                    'line-number' => isset($body['lineNumber']) ? (int) $body['lineNumber'] : 0,
+                    'column-number' => isset($body['columnNumber']) ? (int) $body['columnNumber'] : 0,
+                ),
+            );
+
+            if ($this->validate_report_structure($report)) {
+                $reports[] = $report;
+            }
+        }
+
+        return $reports;
     }
 
     /**
@@ -112,17 +171,17 @@ class CSP_Reporter {
      * @param mixed $report_data
      * @return bool
      */
-    public function validate_report_structure($report_data) {
-        if (!is_array($report_data) || !isset($report_data['csp-report']) || !is_array($report_data['csp-report'])) {
+    public function validate_report_structure( $report_data ) {
+        if ( ! is_array($report_data) || ! isset($report_data['csp-report']) || ! is_array($report_data['csp-report'])) {
             return false;
         }
 
         $csp_report = $report_data['csp-report'];
 
-        $required_fields = array('document-uri', 'violated-directive');
+        $required_fields = array( 'document-uri', 'violated-directive' );
 
         foreach ($required_fields as $field) {
-            if (empty($csp_report[$field]) || !is_string($csp_report[$field])) {
+            if (empty($csp_report[$field]) || ! is_string($csp_report[$field])) {
                 return false;
             }
         }
@@ -160,7 +219,7 @@ class CSP_Reporter {
 
         if ($per_minute > 0) {
             $ip_key = 'csp_rl_' . md5(CSP_Utils::get_client_ip());
-            $count = (int) get_transient($ip_key);
+            $count  = (int) get_transient($ip_key);
 
             if ($count >= $per_minute) {
                 return false;
@@ -188,7 +247,7 @@ class CSP_Reporter {
      * @param array $report_data
      * @return bool Whether the report was recorded (false when ignored).
      */
-    public function process_report($report_data) {
+    public function process_report( $report_data ) {
         $csp_report = $report_data['csp-report'];
 
         // Drop known noise (browser extensions etc.) before it hits storage.
@@ -208,7 +267,7 @@ class CSP_Reporter {
          */
         $enriched_report = apply_filters('csp_report_data', $enriched_report);
 
-        if (empty($enriched_report) || !isset($enriched_report['csp-report'])) {
+        if (empty($enriched_report) || ! isset($enriched_report['csp-report'])) {
             return false;
         }
 
@@ -227,13 +286,13 @@ class CSP_Reporter {
             'client_ip' => $enriched_report['client_ip'],
         ));
 
-        if (!$stored) {
+        if ( ! $stored) {
             error_log('CSP Reporting Plugin: Failed to store violation report');
         }
 
         // Raw file log is optional since 2.0 (the database is authoritative).
         $options = get_option('csp_reporting_options', array());
-        if (!empty($options['file_logging_enabled'])) {
+        if ( ! empty($options['file_logging_enabled'])) {
             $this->logger->log_violation($enriched_report);
         }
 
@@ -258,7 +317,7 @@ class CSP_Reporter {
      * @param array $report_data
      * @return array
      */
-    private function enrich_report_data($report_data) {
+    private function enrich_report_data( $report_data ) {
         $enriched = $report_data;
 
         $enriched['server_info'] = array(
@@ -269,7 +328,7 @@ class CSP_Reporter {
         );
 
         $enriched['client_ip'] = CSP_Utils::get_client_ip();
-        $enriched['severity'] = $this->assess_violation_severity($report_data['csp-report']);
+        $enriched['severity']  = $this->assess_violation_severity($report_data['csp-report']);
 
         return $enriched;
     }
@@ -280,12 +339,12 @@ class CSP_Reporter {
      * @param array $csp_report
      * @return string low|medium|high
      */
-    public function assess_violation_severity($csp_report) {
+    public function assess_violation_severity( $csp_report ) {
         $violated_directive = isset($csp_report['violated-directive']) ? $csp_report['violated-directive'] : '';
-        $blocked_uri = isset($csp_report['blocked-uri']) ? $csp_report['blocked-uri'] : '';
+        $blocked_uri        = isset($csp_report['blocked-uri']) ? $csp_report['blocked-uri'] : '';
 
         // Directives whose violation always indicates a serious problem.
-        $high_severity_directives = array('object-src', 'base-uri', 'form-action', 'frame-ancestors');
+        $high_severity_directives = array( 'object-src', 'base-uri', 'form-action', 'frame-ancestors' );
 
         foreach ($high_severity_directives as $directive) {
             if (strpos($violated_directive, $directive) === 0) {
@@ -301,7 +360,7 @@ class CSP_Reporter {
 
             // Browsers report blocked inline scripts / eval with these
             // keyword values (not the full 'unsafe-*' source expressions).
-            if (in_array($blocked_uri, array('inline', 'eval', 'wasm-eval', ''), true)) {
+            if (in_array($blocked_uri, array( 'inline', 'eval', 'wasm-eval', '' ), true)) {
                 return 'medium';
             }
 
@@ -316,14 +375,14 @@ class CSP_Reporter {
      *
      * @param array $report_data
      */
-    private function check_admin_notifications($report_data) {
+    private function check_admin_notifications( $report_data ) {
         $options = get_option('csp_reporting_options', array());
 
         if (empty($options['enable_admin_notices'])) {
             return;
         }
 
-        if (in_array($report_data['severity'], array('medium', 'high'), true)) {
+        if (in_array($report_data['severity'], array( 'medium', 'high' ), true)) {
             $this->trigger_admin_notification($report_data);
         }
     }
@@ -333,9 +392,9 @@ class CSP_Reporter {
      *
      * @param array $report_data
      */
-    private function trigger_admin_notification($report_data) {
+    private function trigger_admin_notification( $report_data ) {
         $csp_report = $report_data['csp-report'];
-        $severity = $report_data['severity'];
+        $severity   = $report_data['severity'];
 
         $message = sprintf(
             __('CSP Violation Alert: %1$s violation detected on %2$s. Blocked URI: %3$s', 'csp-reporting'),
@@ -346,7 +405,7 @@ class CSP_Reporter {
 
         error_log('CSP Reporting Plugin: ' . $message);
 
-        $notifications = get_option('csp_admin_notifications', array());
+        $notifications   = get_option('csp_admin_notifications', array());
         $notifications[] = array(
             'timestamp' => current_time('mysql'),
             'severity' => $severity,
@@ -390,7 +449,7 @@ class CSP_Reporter {
      * @param int $code
      * @return WP_REST_Response
      */
-    private function error_response($message, $code) {
+    private function error_response( $message, $code ) {
         return new WP_REST_Response(array(
             'error' => $message,
             'code' => $code,
@@ -403,7 +462,7 @@ class CSP_Reporter {
      * @param int $days
      * @return array See CSP_Database::get_stats().
      */
-    public function get_violation_statistics($days = 7) {
+    public function get_violation_statistics( $days = 7 ) {
         return $this->database->get_stats($days);
     }
 }
