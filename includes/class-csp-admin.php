@@ -13,16 +13,19 @@ class CSP_Admin {
 
     private $logger;
     private $reporter;
+    private $database;
 
     /**
      * Constructor
      *
      * @param CSP_Logger|null $logger
      * @param CSP_Reporter|null $reporter
+     * @param CSP_Database|null $database
      */
-    public function __construct($logger = null, $reporter = null) {
+    public function __construct($logger = null, $reporter = null, $database = null) {
         $this->logger = $logger instanceof CSP_Logger ? $logger : new CSP_Logger();
-        $this->reporter = $reporter instanceof CSP_Reporter ? $reporter : new CSP_Reporter($this->logger);
+        $this->database = $database instanceof CSP_Database ? $database : new CSP_Database();
+        $this->reporter = $reporter instanceof CSP_Reporter ? $reporter : new CSP_Reporter($this->logger, $this->database);
 
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'register_settings'));
@@ -106,6 +109,30 @@ class CSP_Admin {
             'csp-reporting',
             'csp_logging_section'
         );
+
+        add_settings_field(
+            'file_logging_enabled',
+            __('Raw File Logging', 'csp-reporting'),
+            array($this, 'file_logging_callback'),
+            'csp-reporting',
+            'csp_logging_section'
+        );
+
+        add_settings_field(
+            'rate_limit_per_minute',
+            __('Rate Limit (Reports/Minute/IP)', 'csp-reporting'),
+            array($this, 'rate_limit_callback'),
+            'csp-reporting',
+            'csp_logging_section'
+        );
+
+        add_settings_field(
+            'ignore_patterns',
+            __('Ignore Patterns', 'csp-reporting'),
+            array($this, 'ignore_patterns_callback'),
+            'csp-reporting',
+            'csp_logging_section'
+        );
         
         add_settings_field(
             'enable_admin_notices',
@@ -147,14 +174,73 @@ class CSP_Admin {
     }
     
     /**
-     * Admin page callback
+     * Admin page callback: routes between the Settings and Violations tabs.
      */
     public function admin_page() {
+        $active_tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'settings';
+
+        if ($active_tab === 'violations') {
+            $this->render_violations_page();
+            return;
+        }
+
         $options = get_option('csp_reporting_options', array());
         $log_stats = $this->logger->get_log_statistics();
         $log_files = $this->logger->get_log_files();
-        
+        $db_stats = $this->database->get_stats(7);
+
         include CSP_REPORTING_PLUGIN_DIR . 'templates/admin-page.php';
+    }
+
+    /**
+     * Render the tab navigation shared by both admin screens.
+     *
+     * @param string $active
+     */
+    public function render_tabs($active) {
+        $tabs = array(
+            'settings' => __('Settings', 'csp-reporting'),
+            'violations' => __('Violations', 'csp-reporting'),
+        );
+
+        echo '<h2 class="nav-tab-wrapper">';
+        foreach ($tabs as $slug => $label) {
+            printf(
+                '<a href="%s" class="nav-tab %s">%s</a>',
+                esc_url(add_query_arg(array('page' => 'csp-reporting', 'tab' => $slug), admin_url('options-general.php'))),
+                $active === $slug ? 'nav-tab-active' : '',
+                esc_html($label)
+            );
+        }
+        echo '</h2>';
+    }
+
+    /**
+     * Render the violations list table screen.
+     */
+    private function render_violations_page() {
+        require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-list-table.php';
+
+        $list_table = new CSP_Violations_List_Table($this->database);
+
+        // Handle bulk actions before rendering.
+        if ($list_table->current_action() === 'delete' && !empty($_REQUEST['violation_ids'])) {
+            check_admin_referer('bulk-csp_violations');
+
+            if (current_user_can('manage_options')) {
+                $deleted = $this->database->delete_violations((array) $_REQUEST['violation_ids']);
+                add_settings_error(
+                    'csp_reporting',
+                    'violations_deleted',
+                    sprintf(_n('%d violation deleted.', '%d violations deleted.', $deleted, 'csp-reporting'), $deleted),
+                    'success'
+                );
+            }
+        }
+
+        $list_table->prepare_items();
+
+        include CSP_REPORTING_PLUGIN_DIR . 'templates/violations-page.php';
     }
     
     /**
@@ -168,8 +254,14 @@ class CSP_Admin {
         $sanitized['csp_admin_pages'] = !empty($input['csp_admin_pages']) ? 1 : 0;
         $sanitized['log_retention_days'] = intval($input['log_retention_days']);
         $sanitized['log_max_size'] = intval($input['log_max_size']);
+        $sanitized['file_logging_enabled'] = !empty($input['file_logging_enabled']) ? 1 : 0;
+        $sanitized['rate_limit_per_minute'] = isset($input['rate_limit_per_minute']) ? max(0, intval($input['rate_limit_per_minute'])) : CSP_Reporter::RATE_LIMIT_PER_MINUTE;
         $sanitized['enable_admin_notices'] = !empty($input['enable_admin_notices']) ? 1 : 0;
         $sanitized['purge_logs_on_uninstall'] = !empty($input['purge_logs_on_uninstall']) ? 1 : 0;
+
+        // One pattern per line; empty lines dropped.
+        $patterns = isset($input['ignore_patterns']) ? sanitize_textarea_field($input['ignore_patterns']) : '';
+        $sanitized['ignore_patterns'] = array_values(array_filter(array_map('trim', preg_split('/[\r\n]+/', $patterns))));
         
         // Validate log retention days
         if ($sanitized['log_retention_days'] < 1) {
@@ -231,6 +323,26 @@ class CSP_Admin {
         $enabled = !empty($options['enable_admin_notices']) ? 1 : 0;
         echo '<input type="checkbox" name="csp_reporting_options[enable_admin_notices]" value="1" ' . checked(1, $enabled, false) . ' />';
         echo '<p class="description">' . __('Show admin notices for important CSP events.', 'csp-reporting') . '</p>';
+    }
+
+    public function file_logging_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = !empty($options['file_logging_enabled']) ? 1 : 0;
+        echo '<input type="checkbox" name="csp_reporting_options[file_logging_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . __('Also write raw reports to log files in wp-content/csp-reports/. The violations database is the primary store; file logs are for external tooling.', 'csp-reporting') . '</p>';
+    }
+
+    public function rate_limit_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $limit = isset($options['rate_limit_per_minute']) ? intval($options['rate_limit_per_minute']) : CSP_Reporter::RATE_LIMIT_PER_MINUTE;
+        echo '<input type="number" name="csp_reporting_options[rate_limit_per_minute]" value="' . esc_attr($limit) . '" min="0" max="1000" />';
+        echo '<p class="description">' . __('Maximum reports accepted per minute from a single IP. 0 disables the limit.', 'csp-reporting') . '</p>';
+    }
+
+    public function ignore_patterns_callback() {
+        $patterns = CSP_Utils::get_ignore_patterns();
+        echo '<textarea name="csp_reporting_options[ignore_patterns]" rows="6" cols="60" class="large-text code">' . esc_textarea(implode("\n", $patterns)) . '</textarea>';
+        echo '<p class="description">' . __('One pattern per line. Reports whose blocked URI or source file contains a pattern are dropped. Defaults cover browser-extension noise.', 'csp-reporting') . '</p>';
     }
 
     public function csp_admin_pages_callback() {

@@ -18,17 +18,34 @@ class CSP_Reporter {
     const MAX_PAYLOAD_BYTES = 32768;
 
     /**
+     * Default per-IP rate limit (reports per minute).
+     */
+    const RATE_LIMIT_PER_MINUTE = 30;
+
+    /**
+     * Default site-wide daily cap on accepted reports.
+     */
+    const RATE_LIMIT_PER_DAY = 5000;
+
+    /**
      * @var CSP_Logger
      */
     private $logger;
 
     /**
+     * @var CSP_Database
+     */
+    private $database;
+
+    /**
      * Constructor
      *
      * @param CSP_Logger|null $logger
+     * @param CSP_Database|null $database
      */
-    public function __construct($logger = null) {
+    public function __construct($logger = null, $database = null) {
         $this->logger = $logger instanceof CSP_Logger ? $logger : new CSP_Logger();
+        $this->database = $database instanceof CSP_Database ? $database : new CSP_Database();
     }
 
     /**
@@ -63,6 +80,10 @@ class CSP_Reporter {
 
         if (strlen($body) > self::MAX_PAYLOAD_BYTES) {
             return $this->error_response('Payload too large', 413);
+        }
+
+        if (!$this->check_rate_limit()) {
+            return $this->error_response('Too many reports', 429);
         }
 
         // Browsers send Content-Type: application/csp-report, which the REST
@@ -110,20 +131,99 @@ class CSP_Reporter {
     }
 
     /**
+     * Enforce the per-IP and site-wide report rate limits.
+     *
+     * The endpoint is unauthenticated by necessity, so this is the main
+     * defense against disk/DB-fill floods.
+     *
+     * @return bool True when the request is within limits.
+     */
+    private function check_rate_limit() {
+        $options = get_option('csp_reporting_options', array());
+
+        /**
+         * Filter the per-IP reports-per-minute limit. Return 0 to disable.
+         *
+         * @param int $limit
+         */
+        $per_minute = apply_filters(
+            'csp_reporting_rate_limit_per_minute',
+            isset($options['rate_limit_per_minute']) ? (int) $options['rate_limit_per_minute'] : self::RATE_LIMIT_PER_MINUTE
+        );
+
+        /**
+         * Filter the site-wide reports-per-day cap. Return 0 to disable.
+         *
+         * @param int $limit
+         */
+        $per_day = apply_filters('csp_reporting_rate_limit_per_day', self::RATE_LIMIT_PER_DAY);
+
+        if ($per_minute > 0) {
+            $ip_key = 'csp_rl_' . md5(CSP_Utils::get_client_ip());
+            $count = (int) get_transient($ip_key);
+
+            if ($count >= $per_minute) {
+                return false;
+            }
+
+            set_transient($ip_key, $count + 1, MINUTE_IN_SECONDS);
+        }
+
+        if ($per_day > 0) {
+            $count = (int) get_transient('csp_rl_global');
+
+            if ($count >= $per_day) {
+                return false;
+            }
+
+            set_transient('csp_rl_global', $count + 1, DAY_IN_SECONDS);
+        }
+
+        return true;
+    }
+
+    /**
      * Process a validated CSP violation report.
      *
      * @param array $report_data
+     * @return bool Whether the report was recorded (false when ignored).
      */
     public function process_report($report_data) {
+        $csp_report = $report_data['csp-report'];
+
+        // Drop known noise (browser extensions etc.) before it hits storage.
+        if (CSP_Utils::matches_ignore_patterns($csp_report, CSP_Utils::get_ignore_patterns())) {
+            return false;
+        }
+
         $enriched_report = $this->enrich_report_data($report_data);
 
-        $log_success = $this->logger->log_violation($enriched_report);
+        $stored = $this->database->insert_violation(array(
+            'severity' => $enriched_report['severity'],
+            'directive' => $csp_report['violated-directive'],
+            'blocked_uri' => isset($csp_report['blocked-uri']) ? $csp_report['blocked-uri'] : '',
+            'document_uri' => $csp_report['document-uri'],
+            'source_file' => isset($csp_report['source-file']) ? $csp_report['source-file'] : '',
+            'line_number' => isset($csp_report['line-number']) ? (int) $csp_report['line-number'] : 0,
+            'column_number' => isset($csp_report['column-number']) ? (int) $csp_report['column-number'] : 0,
+            'disposition' => isset($csp_report['disposition']) ? $csp_report['disposition'] : 'report',
+            'user_agent' => $enriched_report['server_info']['user_agent'],
+            'client_ip' => $enriched_report['client_ip'],
+        ));
 
-        if (!$log_success) {
-            error_log('CSP Reporting Plugin: Failed to log violation report');
+        if (!$stored) {
+            error_log('CSP Reporting Plugin: Failed to store violation report');
+        }
+
+        // Raw file log is optional since 2.0 (the database is authoritative).
+        $options = get_option('csp_reporting_options', array());
+        if (!empty($options['file_logging_enabled'])) {
+            $this->logger->log_violation($enriched_report);
         }
 
         $this->check_admin_notifications($enriched_report);
+
+        return $stored;
     }
 
     /**
@@ -272,63 +372,12 @@ class CSP_Reporter {
     }
 
     /**
-     * Get violation statistics
+     * Get violation statistics for the last N days.
      *
      * @param int $days
-     * @return array
+     * @return array See CSP_Database::get_stats().
      */
     public function get_violation_statistics($days = 7) {
-        $log_files = $this->logger->get_log_files();
-        $cutoff_time = time() - ($days * 24 * 60 * 60);
-        $stats = array(
-            'total_violations' => 0,
-            'by_severity' => array('low' => 0, 'medium' => 0, 'high' => 0),
-            'by_directive' => array(),
-            'by_uri' => array(),
-            'recent_violations' => array(),
-        );
-
-        foreach ($log_files as $file) {
-            if (filemtime($file) < $cutoff_time) {
-                continue;
-            }
-
-            foreach ($this->logger->read_log_entries($file) as $log_data) {
-                if (!isset($log_data['report_data']['csp-report'])) {
-                    continue;
-                }
-
-                $report_data = $log_data['report_data'];
-                $csp_report = $report_data['csp-report'];
-
-                $stats['total_violations']++;
-
-                $severity = isset($report_data['severity']) ? $report_data['severity'] : 'low';
-                if (isset($stats['by_severity'][$severity])) {
-                    $stats['by_severity'][$severity]++;
-                }
-
-                $directive = $csp_report['violated-directive'];
-                $stats['by_directive'][$directive] = ($stats['by_directive'][$directive] ?? 0) + 1;
-
-                $blocked_uri = isset($csp_report['blocked-uri']) ? $csp_report['blocked-uri'] : '';
-                $stats['by_uri'][$blocked_uri] = ($stats['by_uri'][$blocked_uri] ?? 0) + 1;
-
-                if (count($stats['recent_violations']) < 10) {
-                    $stats['recent_violations'][] = array(
-                        'timestamp' => isset($log_data['timestamp']) ? $log_data['timestamp'] : '',
-                        'severity' => $severity,
-                        'directive' => $directive,
-                        'blocked_uri' => $blocked_uri,
-                        'document_uri' => $csp_report['document-uri'],
-                    );
-                }
-            }
-        }
-
-        arsort($stats['by_directive']);
-        arsort($stats['by_uri']);
-
-        return $stats;
+        return $this->database->get_stats($days);
     }
 }

@@ -21,6 +21,86 @@ class CSP_Utils {
     }
 
     /**
+     * Default ignore patterns for noise every site sees: browser extensions,
+     * translation proxies, and inert about: pages.
+     *
+     * @return string[]
+     */
+    public static function default_ignore_patterns() {
+        return array(
+            'chrome-extension://',
+            'moz-extension://',
+            'safari-extension://',
+            'safari-web-extension://',
+            'ms-browser-extension://',
+            'about:blank',
+            'about:srcdoc',
+            'translate.googleapis.com',
+        );
+    }
+
+    /**
+     * Check whether a violation matches any ignore pattern.
+     *
+     * Patterns are case-insensitive substrings matched against the blocked
+     * URI and the source file.
+     *
+     * @param array $csp_report The csp-report payload.
+     * @param string[] $patterns
+     * @return bool
+     */
+    public static function matches_ignore_patterns($csp_report, $patterns) {
+        $haystacks = array();
+
+        foreach (array('blocked-uri', 'source-file') as $field) {
+            if (!empty($csp_report[$field]) && is_string($csp_report[$field])) {
+                $haystacks[] = strtolower($csp_report[$field]);
+            }
+        }
+
+        foreach ((array) $patterns as $pattern) {
+            $pattern = strtolower(trim($pattern));
+            if ($pattern === '') {
+                continue;
+            }
+
+            foreach ($haystacks as $haystack) {
+                if (strpos($haystack, $pattern) !== false) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Get the configured ignore patterns.
+     *
+     * @return string[]
+     */
+    public static function get_ignore_patterns() {
+        $options = get_option('csp_reporting_options', array());
+
+        if (!array_key_exists('ignore_patterns', $options)) {
+            $patterns = self::default_ignore_patterns();
+        } else {
+            $patterns = $options['ignore_patterns'];
+            if (is_string($patterns)) {
+                $patterns = preg_split('/[\r\n]+/', $patterns);
+            }
+        }
+
+        /**
+         * Filter the violation ignore patterns.
+         *
+         * @param string[] $patterns Case-insensitive substrings matched
+         *                           against blocked-uri and source-file.
+         */
+        return apply_filters('csp_reporting_ignore_patterns', array_values(array_filter((array) $patterns)));
+    }
+
+    /**
      * Get the client IP address.
      *
      * Only REMOTE_ADDR is trusted by default because every other header

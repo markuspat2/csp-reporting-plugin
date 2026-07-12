@@ -357,3 +357,31 @@
     color: #00a32a;
 }
 
+
+/* Severity badges (violations list table) */
+.csp-severity {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.csp-severity-high {
+    background-color: #fcf0f1;
+    color: #d63638;
+    border: 1px solid #d63638;
+}
+
+.csp-severity-medium {
+    background-color: #fff8e5;
+    color: #8a6914;
+    border: 1px solid #dba617;
+}
+
+.csp-severity-low {
+    background-color: #f0f6fc;
+    color: #0073aa;
+    border: 1px solid #0073aa;
+}

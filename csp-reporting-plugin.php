@@ -27,6 +27,7 @@ define('CSP_REPORTING_LOG_DIR', WP_CONTENT_DIR . '/csp-reports/');
 
 // Include required files
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-utils.php';
+require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-database.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-logger.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-admin.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-reporter.php';
@@ -52,6 +53,11 @@ class CSP_Reporting_Plugin {
      * @var CSP_Reporter
      */
     public $reporter;
+
+    /**
+     * @var CSP_Database
+     */
+    public $database;
 
     /**
      * Get singleton instance
@@ -84,10 +90,12 @@ class CSP_Reporting_Plugin {
         load_plugin_textdomain('csp-reporting', false, dirname(plugin_basename(__FILE__)) . '/languages');
 
         $this->logger = new CSP_Logger();
-        $this->reporter = new CSP_Reporter($this->logger);
+        $this->database = new CSP_Database();
+        $this->reporter = new CSP_Reporter($this->logger, $this->database);
 
         if (is_admin()) {
-            $this->admin = new CSP_Admin($this->logger, $this->reporter);
+            $this->database->maybe_upgrade($this->logger);
+            $this->admin = new CSP_Admin($this->logger, $this->reporter, $this->database);
         }
 
         // Report endpoint: wp-json/csp-reporting/v1/report
@@ -108,6 +116,9 @@ class CSP_Reporting_Plugin {
         // Create log directory
         $this->create_log_directory();
 
+        // Create the violations table.
+        CSP_Database::install();
+
         // Set default options (only added if missing)
         $default_options = array(
             'csp_enabled' => true,
@@ -115,6 +126,9 @@ class CSP_Reporting_Plugin {
             'csp_admin_pages' => false,
             'log_retention_days' => 30,
             'log_max_size' => 10485760, // 10MB
+            'file_logging_enabled' => false,
+            'rate_limit_per_minute' => 30,
+            'ignore_patterns' => CSP_Utils::default_ignore_patterns(),
             'enable_admin_notices' => true,
             'purge_logs_on_uninstall' => false,
         );
@@ -209,13 +223,15 @@ class CSP_Reporting_Plugin {
     }
 
     /**
-     * Cleanup old log files (daily cron)
+     * Cleanup old data (daily cron): file logs and database rows past the
+     * retention window.
      */
     public function cleanup_old_logs() {
         $options = get_option('csp_reporting_options', array());
         $retention_days = !empty($options['log_retention_days']) ? intval($options['log_retention_days']) : 30;
 
         $this->logger->clean_old_logs($retention_days);
+        $this->database->prune($retention_days);
     }
 }
 

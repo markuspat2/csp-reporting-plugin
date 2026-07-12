@@ -12,7 +12,9 @@ if (!defined('ABSPATH')) {
 
 <div class="wrap csp-admin-page">
     <h1><?php _e('CSP Reporting Settings', 'csp-reporting'); ?></h1>
-    
+
+    <?php $this->render_tabs('settings'); ?>
+
     <?php settings_errors(); ?>
     
     <div class="csp-admin-content">
@@ -44,29 +46,48 @@ if (!defined('ABSPATH')) {
             </div>
             
             <div class="csp-widget">
-                <h3><?php _e('Log Statistics', 'csp-reporting'); ?></h3>
+                <h3><?php _e('Violations (Last 7 Days)', 'csp-reporting'); ?></h3>
+                <div class="csp-stats">
+                    <div class="stat-item">
+                        <span class="stat-label"><?php _e('Total Reports:', 'csp-reporting'); ?></span>
+                        <span class="stat-value"><?php echo esc_html(number_format_i18n($db_stats['total_hits'])); ?></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label"><?php _e('Unique Patterns:', 'csp-reporting'); ?></span>
+                        <span class="stat-value"><?php echo esc_html(number_format_i18n($db_stats['unique_patterns'])); ?></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label"><?php _e('High Severity:', 'csp-reporting'); ?></span>
+                        <span class="stat-value"><?php echo esc_html(number_format_i18n($db_stats['by_severity']['high'])); ?></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label"><?php _e('Medium Severity:', 'csp-reporting'); ?></span>
+                        <span class="stat-value"><?php echo esc_html(number_format_i18n($db_stats['by_severity']['medium'])); ?></span>
+                    </div>
+                </div>
+                <p>
+                    <a href="<?php echo esc_url(add_query_arg(array('page' => 'csp-reporting', 'tab' => 'violations'), admin_url('options-general.php'))); ?>" class="button button-secondary">
+                        <?php _e('View All Violations', 'csp-reporting'); ?>
+                    </a>
+                </p>
+            </div>
+
+            <?php if (!empty($options['file_logging_enabled'])): ?>
+            <div class="csp-widget">
+                <h3><?php _e('Log Files', 'csp-reporting'); ?></h3>
                 <div class="csp-stats">
                     <div class="stat-item">
                         <span class="stat-label"><?php _e('Total Files:', 'csp-reporting'); ?></span>
                         <span class="stat-value"><?php echo esc_html($log_stats['total_files']); ?></span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-label"><?php _e('Total Entries:', 'csp-reporting'); ?></span>
-                        <span class="stat-value"><?php echo esc_html($log_stats['total_entries']); ?></span>
-                    </div>
-                    <div class="stat-item">
                         <span class="stat-label"><?php _e('Total Size:', 'csp-reporting'); ?></span>
                         <span class="stat-value"><?php echo esc_html($log_stats['total_size_formatted']); ?></span>
                     </div>
-                    <?php if ($log_stats['newest_file']): ?>
-                    <div class="stat-item">
-                        <span class="stat-label"><?php _e('Newest File:', 'csp-reporting'); ?></span>
-                        <span class="stat-value"><?php echo esc_html($log_stats['newest_file']); ?></span>
-                    </div>
-                    <?php endif; ?>
                 </div>
             </div>
-            
+            <?php endif; ?>
+
             <?php if (!empty($log_files)): ?>
             <div class="csp-widget">
                 <h3><?php _e('Log Files', 'csp-reporting'); ?></h3>
