@@ -1,8 +1,9 @@
 <?php
 /**
  * CSP Reporter Class
- * 
- * Handles CSP violation report processing and logging
+ *
+ * Receives CSP violation reports on a REST endpoint, validates and enriches
+ * them, and hands them to the logger.
  */
 
 if (!defined('ABSPATH')) {
@@ -10,349 +11,269 @@ if (!defined('ABSPATH')) {
 }
 
 class CSP_Reporter {
-    
+
+    /**
+     * Reject report payloads larger than this many bytes.
+     */
+    const MAX_PAYLOAD_BYTES = 32768;
+
+    /**
+     * @var CSP_Logger
+     */
     private $logger;
-    
+
     /**
      * Constructor
+     *
+     * @param CSP_Logger|null $logger
      */
-    public function __construct() {
-        $this->logger = new CSP_Logger();
+    public function __construct($logger = null) {
+        $this->logger = $logger instanceof CSP_Logger ? $logger : new CSP_Logger();
     }
-    
+
     /**
-     * Handle CSP violation report
+     * Register the REST report endpoint.
+     *
+     * POST wp-json/csp-reporting/v1/report
+     *
+     * Browsers post violation reports here without authentication, so the
+     * permission callback is open by design; payloads are size-checked and
+     * validated instead.
      */
-    public function handle_report() {
-        // Check if this is a test request (GET method)
-        if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-            $this->handle_test_request();
-            return;
+    public function register_routes() {
+        register_rest_route('csp-reporting/v1', '/report', array(
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => array($this, 'handle_report'),
+            'permission_callback' => '__return_true',
+        ));
+    }
+
+    /**
+     * Handle an incoming CSP violation report.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function handle_report($request) {
+        $body = $request->get_body();
+
+        if (empty($body)) {
+            return $this->error_response('No data received', 400);
         }
-        
-        // Get the raw input
-        $input = file_get_contents('php://input');
-        
-        if (empty($input)) {
-            $this->send_error_response('No data received', 400);
-            return;
+
+        if (strlen($body) > self::MAX_PAYLOAD_BYTES) {
+            return $this->error_response('Payload too large', 413);
         }
-        
-        // Parse JSON data
-        $report_data = json_decode($input, true);
-        
+
+        // Browsers send Content-Type: application/csp-report, which the REST
+        // API does not parse into params — decode the raw body ourselves.
+        $report_data = json_decode($body, true);
+
         if (json_last_error() !== JSON_ERROR_NONE) {
-            $this->send_error_response('Invalid JSON data: ' . json_last_error_msg(), 400);
-            return;
+            return $this->error_response('Invalid JSON data', 400);
         }
-        
-        // Validate report structure
+
         if (!$this->validate_report_structure($report_data)) {
-            $this->send_error_response('Invalid report structure', 400);
-            return;
+            return $this->error_response('Invalid report structure', 400);
         }
-        
-        // Process the report
+
         $this->process_report($report_data);
-        
-        // Send success response
-        $this->send_success_response();
+
+        return new WP_REST_Response(null, 204);
     }
-    
+
     /**
-     * Handle test request (GET method)
-     */
-    private function handle_test_request() {
-        $options = get_option('csp_reporting_options', array());
-        $log_stats = $this->logger->get_log_statistics();
-        
-        $response = array(
-            'status' => 'success',
-            'message' => 'CSP Reporting endpoint is working correctly',
-            'plugin_info' => array(
-                'version' => CSP_REPORTING_VERSION,
-                'enabled' => !empty($options['csp_enabled']),
-                'endpoint_url' => home_url('/csp-report-endpoint/'),
-                'log_directory' => CSP_REPORTING_LOG_DIR,
-                'log_stats' => $log_stats
-            ),
-            'test_info' => array(
-                'timestamp' => current_time('mysql'),
-                'request_method' => $_SERVER['REQUEST_METHOD'],
-                'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'Unknown',
-                'client_ip' => $this->get_client_ip()
-            )
-        );
-        
-        header('Content-Type: application/json');
-        echo json_encode($response, JSON_PRETTY_PRINT);
-        exit;
-    }
-    
-    /**
-     * Validate CSP report structure
-     * 
-     * @param array $report_data
+     * Validate CSP report structure.
+     *
+     * Only the fields every browser reliably sends are required; the rest of
+     * the report-uri payload varies by engine and version.
+     *
+     * @param mixed $report_data
      * @return bool
      */
-    private function validate_report_structure($report_data) {
-        if (!is_array($report_data)) {
+    public function validate_report_structure($report_data) {
+        if (!is_array($report_data) || !isset($report_data['csp-report']) || !is_array($report_data['csp-report'])) {
             return false;
         }
-        
-        // Check for required top-level fields
-        if (!isset($report_data['csp-report'])) {
-            return false;
-        }
-        
+
         $csp_report = $report_data['csp-report'];
-        
-        // Check for required CSP report fields
-        $required_fields = array(
-            'document-uri',
-            'violated-directive',
-            'effective-directive',
-            'original-policy',
-            'disposition',
-            'blocked-uri',
-            'status-code'
-        );
-        
+
+        $required_fields = array('document-uri', 'violated-directive');
+
         foreach ($required_fields as $field) {
-            if (!isset($csp_report[$field])) {
+            if (empty($csp_report[$field]) || !is_string($csp_report[$field])) {
                 return false;
             }
         }
-        
+
         return true;
     }
-    
+
     /**
-     * Process CSP violation report
-     * 
+     * Process a validated CSP violation report.
+     *
      * @param array $report_data
      */
-    private function process_report($report_data) {
-        // Add additional metadata
+    public function process_report($report_data) {
         $enriched_report = $this->enrich_report_data($report_data);
-        
-        // Log the violation
+
         $log_success = $this->logger->log_violation($enriched_report);
-        
+
         if (!$log_success) {
             error_log('CSP Reporting Plugin: Failed to log violation report');
         }
-        
-        // Check if we should trigger admin notifications
+
         $this->check_admin_notifications($enriched_report);
     }
-    
+
     /**
      * Enrich report data with additional information
-     * 
+     *
      * @param array $report_data
      * @return array
      */
     private function enrich_report_data($report_data) {
         $enriched = $report_data;
-        
-        // Add server information
+
         $enriched['server_info'] = array(
             'timestamp' => current_time('mysql'),
             'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'Unknown',
             'referer' => isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '',
-            'request_method' => isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'Unknown',
             'content_type' => isset($_SERVER['CONTENT_TYPE']) ? $_SERVER['CONTENT_TYPE'] : '',
-            'content_length' => isset($_SERVER['CONTENT_LENGTH']) ? intval($_SERVER['CONTENT_LENGTH']) : 0
         );
-        
-        // Add client IP
-        $enriched['client_ip'] = $this->get_client_ip();
-        
-        // Add WordPress context if available
-        if (function_exists('get_current_user_id')) {
-            $enriched['wp_context'] = array(
-                'user_id' => get_current_user_id(),
-                'is_admin' => is_admin(),
-                'is_ajax' => wp_doing_ajax(),
-                'is_cron' => wp_doing_cron(),
-                'is_rest' => defined('REST_REQUEST') && REST_REQUEST
-            );
-        }
-        
-        // Add severity assessment
+
+        $enriched['client_ip'] = CSP_Utils::get_client_ip();
         $enriched['severity'] = $this->assess_violation_severity($report_data['csp-report']);
-        
+
         return $enriched;
     }
-    
+
     /**
-     * Assess violation severity
-     * 
+     * Assess violation severity.
+     *
      * @param array $csp_report
-     * @return string
+     * @return string low|medium|high
      */
-    private function assess_violation_severity($csp_report) {
-        $severity = 'low';
-        
-        // Check for high-severity violations
-        $high_severity_patterns = array(
-            'script-src' => array('unsafe-eval', 'unsafe-inline'),
-            'object-src' => array('*', 'data:', 'blob:'),
-            'base-uri' => array('*', 'data:', 'javascript:'),
-            'form-action' => array('*', 'javascript:')
-        );
-        
-        $violated_directive = $csp_report['violated-directive'];
-        $blocked_uri = $csp_report['blocked-uri'];
-        
-        // Check for script injection attempts
-        if (strpos($violated_directive, 'script-src') !== false) {
-            if (strpos($blocked_uri, 'javascript:') !== false || 
-                strpos($blocked_uri, 'data:') !== false ||
-                strpos($blocked_uri, 'vbscript:') !== false) {
-                $severity = 'high';
-            } elseif (strpos($blocked_uri, 'unsafe-inline') !== false || 
-                     strpos($blocked_uri, 'unsafe-eval') !== false) {
-                $severity = 'medium';
+    public function assess_violation_severity($csp_report) {
+        $violated_directive = isset($csp_report['violated-directive']) ? $csp_report['violated-directive'] : '';
+        $blocked_uri = isset($csp_report['blocked-uri']) ? $csp_report['blocked-uri'] : '';
+
+        // Directives whose violation always indicates a serious problem.
+        $high_severity_directives = array('object-src', 'base-uri', 'form-action', 'frame-ancestors');
+
+        foreach ($high_severity_directives as $directive) {
+            if (strpos($violated_directive, $directive) === 0) {
+                return 'high';
             }
         }
-        
-        // Check for object/embed violations
-        if (strpos($violated_directive, 'object-src') !== false) {
-            $severity = 'high';
+
+        if (strpos($violated_directive, 'script-src') === 0) {
+            // Dangerous URI schemes are potential injection attempts.
+            if (preg_match('#^(javascript|data|vbscript|blob):#i', $blocked_uri)) {
+                return 'high';
+            }
+
+            // Browsers report blocked inline scripts / eval with these
+            // keyword values (not the full 'unsafe-*' source expressions).
+            if (in_array($blocked_uri, array('inline', 'eval', 'wasm-eval', ''), true)) {
+                return 'medium';
+            }
+
+            return 'medium';
         }
-        
-        // Check for base-uri violations
-        if (strpos($violated_directive, 'base-uri') !== false) {
-            $severity = 'high';
-        }
-        
-        // Check for form-action violations
-        if (strpos($violated_directive, 'form-action') !== false) {
-            $severity = 'high';
-        }
-        
-        return $severity;
+
+        return 'low';
     }
-    
+
     /**
      * Check if admin notifications should be triggered
-     * 
+     *
      * @param array $report_data
      */
     private function check_admin_notifications($report_data) {
         $options = get_option('csp_reporting_options', array());
-        
+
         if (empty($options['enable_admin_notices'])) {
             return;
         }
-        
-        $severity = $report_data['severity'];
-        $csp_report = $report_data['csp-report'];
-        
-        // Only notify for medium and high severity violations
-        if (in_array($severity, array('medium', 'high'))) {
+
+        if (in_array($report_data['severity'], array('medium', 'high'), true)) {
             $this->trigger_admin_notification($report_data);
         }
     }
-    
+
     /**
      * Trigger admin notification
-     * 
+     *
      * @param array $report_data
      */
     private function trigger_admin_notification($report_data) {
         $csp_report = $report_data['csp-report'];
         $severity = $report_data['severity'];
-        
+
         $message = sprintf(
-            __('CSP Violation Alert: %s violation detected on %s. Blocked URI: %s', 'csp-reporting'),
+            __('CSP Violation Alert: %1$s violation detected on %2$s. Blocked URI: %3$s', 'csp-reporting'),
             strtoupper($severity),
             $csp_report['document-uri'],
-            $csp_report['blocked-uri']
+            isset($csp_report['blocked-uri']) ? $csp_report['blocked-uri'] : ''
         );
-        
-        // Log to WordPress error log
+
         error_log('CSP Reporting Plugin: ' . $message);
-        
-        // Store notification for admin dashboard
+
         $notifications = get_option('csp_admin_notifications', array());
         $notifications[] = array(
             'timestamp' => current_time('mysql'),
             'severity' => $severity,
             'message' => $message,
-            'report_data' => $report_data
         );
-        
+
         // Keep only last 50 notifications
         if (count($notifications) > 50) {
             $notifications = array_slice($notifications, -50);
         }
-        
-        update_option('csp_admin_notifications', $notifications);
+
+        update_option('csp_admin_notifications', $notifications, false);
     }
-    
+
     /**
-     * Get client IP address
-     * 
-     * @return string
+     * Build a synthetic report for the admin "Send Test Report" action.
+     *
+     * @return array
      */
-    private function get_client_ip() {
-        $ip_keys = array(
-            'HTTP_CF_CONNECTING_IP',
-            'HTTP_CLIENT_IP',
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_X_FORWARDED',
-            'HTTP_X_CLUSTER_CLIENT_IP',
-            'HTTP_FORWARDED_FOR',
-            'HTTP_FORWARDED',
-            'REMOTE_ADDR'
+    public function create_test_report() {
+        return array(
+            'csp-report' => array(
+                'document-uri' => home_url('/csp-test-page/'),
+                'violated-directive' => "script-src 'self'",
+                'effective-directive' => 'script-src',
+                'original-policy' => "script-src 'self'; object-src 'none';",
+                'disposition' => 'report',
+                'blocked-uri' => 'https://example.com/test-script.js',
+                'status-code' => 200,
+                'source-file' => home_url('/csp-test-page/'),
+                'line-number' => 1,
+                'column-number' => 1,
+            ),
         );
-        
-        foreach ($ip_keys as $key) {
-            if (array_key_exists($key, $_SERVER) === true) {
-                $ip = $_SERVER[$key];
-                if (strpos($ip, ',') !== false) {
-                    $ip = explode(',', $ip)[0];
-                }
-                $ip = trim($ip);
-                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                    return $ip;
-                }
-            }
-        }
-        
-        return isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'Unknown';
     }
-    
+
     /**
-     * Send success response
-     */
-    private function send_success_response() {
-        http_response_code(204);
-        exit;
-    }
-    
-    /**
-     * Send error response
-     * 
+     * Build an error response.
+     *
      * @param string $message
      * @param int $code
+     * @return WP_REST_Response
      */
-    private function send_error_response($message, $code = 400) {
-        http_response_code($code);
-        header('Content-Type: application/json');
-        echo json_encode(array(
+    private function error_response($message, $code) {
+        return new WP_REST_Response(array(
             'error' => $message,
-            'code' => $code
-        ));
-        exit;
+            'code' => $code,
+        ), $code);
     }
-    
+
     /**
      * Get violation statistics
-     * 
+     *
      * @param int $days
      * @return array
      */
@@ -364,74 +285,50 @@ class CSP_Reporter {
             'by_severity' => array('low' => 0, 'medium' => 0, 'high' => 0),
             'by_directive' => array(),
             'by_uri' => array(),
-            'recent_violations' => array()
+            'recent_violations' => array(),
         );
-        
+
         foreach ($log_files as $file) {
             if (filemtime($file) < $cutoff_time) {
                 continue;
             }
-            
-            $content = file_get_contents($file);
-            if (!$content) {
-                continue;
-            }
-            
-            // Parse log entries
-            $entries = explode(str_repeat('-', 80), $content);
-            
-            foreach ($entries as $entry) {
-                if (empty(trim($entry))) {
+
+            foreach ($this->logger->read_log_entries($file) as $log_data) {
+                if (!isset($log_data['report_data']['csp-report'])) {
                     continue;
                 }
-                
-                $log_data = json_decode(trim($entry), true);
-                if (!$log_data || !isset($log_data['report_data'])) {
-                    continue;
-                }
-                
+
                 $report_data = $log_data['report_data'];
                 $csp_report = $report_data['csp-report'];
-                
+
                 $stats['total_violations']++;
-                
-                // Count by severity
-                if (isset($report_data['severity'])) {
-                    $stats['by_severity'][$report_data['severity']]++;
+
+                $severity = isset($report_data['severity']) ? $report_data['severity'] : 'low';
+                if (isset($stats['by_severity'][$severity])) {
+                    $stats['by_severity'][$severity]++;
                 }
-                
-                // Count by directive
+
                 $directive = $csp_report['violated-directive'];
-                if (!isset($stats['by_directive'][$directive])) {
-                    $stats['by_directive'][$directive] = 0;
-                }
-                $stats['by_directive'][$directive]++;
-                
-                // Count by blocked URI
-                $blocked_uri = $csp_report['blocked-uri'];
-                if (!isset($stats['by_uri'][$blocked_uri])) {
-                    $stats['by_uri'][$blocked_uri] = 0;
-                }
-                $stats['by_uri'][$blocked_uri]++;
-                
-                // Add to recent violations (last 10)
+                $stats['by_directive'][$directive] = ($stats['by_directive'][$directive] ?? 0) + 1;
+
+                $blocked_uri = isset($csp_report['blocked-uri']) ? $csp_report['blocked-uri'] : '';
+                $stats['by_uri'][$blocked_uri] = ($stats['by_uri'][$blocked_uri] ?? 0) + 1;
+
                 if (count($stats['recent_violations']) < 10) {
                     $stats['recent_violations'][] = array(
-                        'timestamp' => $log_data['timestamp'],
-                        'severity' => $report_data['severity'] ?? 'unknown',
+                        'timestamp' => isset($log_data['timestamp']) ? $log_data['timestamp'] : '',
+                        'severity' => $severity,
                         'directive' => $directive,
                         'blocked_uri' => $blocked_uri,
-                        'document_uri' => $csp_report['document-uri']
+                        'document_uri' => $csp_report['document-uri'],
                     );
                 }
             }
         }
-        
-        // Sort by count
+
         arsort($stats['by_directive']);
         arsort($stats['by_uri']);
-        
+
         return $stats;
     }
 }
-

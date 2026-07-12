@@ -164,36 +164,22 @@
             
             var $button = $(this);
             $button.prop('disabled', true).text('Sending...');
-            
-            // Create a test CSP violation report
-            var testReport = {
-                'csp-report': {
-                    'document-uri': window.location.origin + '/test-page/',
-                    'violated-directive': 'script-src \'self\'',
-                    'effective-directive': 'script-src',
-                    'original-policy': 'script-src \'self\'; object-src \'none\';',
-                    'disposition': 'report',
-                    'blocked-uri': 'https://example.com/malicious-script.js',
-                    'status-code': 200,
-                    'source-file': 'https://example.com/test-page.html',
-                    'line-number': 15,
-                    'column-number': 8
-                }
-            };
-            
+
             $.ajax({
-                url: window.location.origin + '/csp-report-endpoint/',
+                url: csp_admin_ajax.ajax_url,
                 type: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify(testReport),
-                success: function(response, status, xhr) {
-                    if (xhr.status === 204) {
-                        CSPAdmin.showAlert('Test report sent successfully! Check the logs for the new entry.', 'success');
+                data: {
+                    action: 'csp_send_test_report',
+                    nonce: csp_admin_ajax.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        CSPAdmin.showAlert(response.data.message, 'success');
                         setTimeout(function() {
                             location.reload();
                         }, 1500);
                     } else {
-                        CSPAdmin.showAlert('Unexpected response: ' + xhr.status, 'warning');
+                        CSPAdmin.showAlert((response.data && response.data.message) || csp_admin_ajax.strings.error_occurred, 'error');
                     }
                 },
                 error: function(xhr, status, error) {

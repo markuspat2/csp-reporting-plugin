@@ -1,0 +1,13 @@
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Dependencies
+/vendor/
+/node_modules/
+composer.lock
+
+# Build/test artifacts
+*.log
+.phpunit.result.cache
+.phpcs-cache

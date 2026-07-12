@@ -38,7 +38,7 @@ if (!defined('ABSPATH')) {
                     </div>
                     <div class="status-item">
                         <span class="status-label"><?php _e('Endpoint URL:', 'csp-reporting'); ?></span>
-                        <span class="status-value"><?php echo home_url('/csp-report-endpoint/'); ?></span>
+                        <span class="status-value"><?php echo esc_url(CSP_Utils::get_report_endpoint_url()); ?></span>
                     </div>
                 </div>
             </div>
@@ -103,15 +103,9 @@ if (!defined('ABSPATH')) {
             <div class="csp-widget">
                 <h3><?php _e('Quick Actions', 'csp-reporting'); ?></h3>
                 <div class="quick-actions">
-                    <a href="<?php echo home_url('/csp-report-endpoint/'); ?>" target="_blank" class="button button-secondary">
-                        <?php _e('Test Endpoint', 'csp-reporting'); ?>
-                    </a>
                     <button type="button" class="button button-secondary" id="send-test-report">
                         <?php _e('Send Test Report', 'csp-reporting'); ?>
                     </button>
-                    <a href="<?php echo home_url('/?csp_debug_rewrite=1'); ?>" target="_blank" class="button button-secondary">
-                        <?php _e('Debug Rewrite Rules', 'csp-reporting'); ?>
-                    </a>
                     <button type="button" class="button button-secondary" id="refresh-stats">
                         <?php _e('Refresh Statistics', 'csp-reporting'); ?>
                     </button>
@@ -142,115 +136,5 @@ if (!defined('ABSPATH')) {
     </div>
 </div>
 
-<script type="text/javascript">
-jQuery(document).ready(function($) {
-    var currentLogFile = null;
-    
-    // View log file
-    $('.view-log').on('click', function() {
-        var filePath = $(this).data('file');
-        currentLogFile = filePath;
-        
-        $.ajax({
-            url: ajaxurl,
-            type: 'POST',
-            data: {
-                action: 'csp_get_log_content',
-                file_path: filePath,
-                nonce: csp_admin_ajax.nonce
-            },
-            success: function(response) {
-                if (response.success) {
-                    $('#log-content').text(response.data.content);
-                    $('#log-viewer-modal').show();
-                } else {
-                    alert(csp_admin_ajax.strings.error_occurred);
-                }
-            },
-            error: function() {
-                alert(csp_admin_ajax.strings.error_occurred);
-            }
-        });
-    });
-    
-    // Download log file
-    $('.download-log, #download-current-log').on('click', function() {
-        var filePath = currentLogFile || $(this).data('file');
-        
-        if (!filePath) {
-            alert(csp_admin_ajax.strings.error_occurred);
-            return;
-        }
-        
-        var form = $('<form>', {
-            method: 'POST',
-            action: csp_admin_ajax.ajax_url
-        });
-        
-        form.append($('<input>', {
-            type: 'hidden',
-            name: 'action',
-            value: 'csp_download_log'
-        }));
-        
-        form.append($('<input>', {
-            type: 'hidden',
-            name: 'file_path',
-            value: filePath
-        }));
-        
-        form.append($('<input>', {
-            type: 'hidden',
-            name: 'nonce',
-            value: csp_admin_ajax.nonce
-        }));
-        
-        $('body').append(form);
-        form.submit();
-        form.remove();
-    });
-    
-    // Clear logs
-    $('#clear-logs').on('click', function() {
-        if (confirm(csp_admin_ajax.strings.confirm_clear_logs)) {
-            $.ajax({
-                url: csp_admin_ajax.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'csp_clear_logs',
-                    nonce: csp_admin_ajax.nonce
-                },
-                success: function(response) {
-                    if (response.success) {
-                        alert(response.data.message);
-                        location.reload();
-                    } else {
-                        alert(csp_admin_ajax.strings.error_occurred);
-                    }
-                },
-                error: function() {
-                    alert(csp_admin_ajax.strings.error_occurred);
-                }
-            });
-        }
-    });
-    
-    // Refresh statistics
-    $('#refresh-stats').on('click', function() {
-        location.reload();
-    });
-    
-    // Close modal
-    $('.csp-modal-close').on('click', function() {
-        $('#log-viewer-modal').hide();
-    });
-    
-    // Close modal on outside click
-    $(window).on('click', function(e) {
-        if (e.target.id === 'log-viewer-modal') {
-            $('#log-viewer-modal').hide();
-        }
-    });
-});
-</script>
+
 

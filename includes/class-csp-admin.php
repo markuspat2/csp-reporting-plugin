@@ -10,20 +10,28 @@ if (!defined('ABSPATH')) {
 }
 
 class CSP_Admin {
-    
+
     private $logger;
-    
+    private $reporter;
+
     /**
      * Constructor
+     *
+     * @param CSP_Logger|null $logger
+     * @param CSP_Reporter|null $reporter
      */
-    public function __construct() {
-        $this->logger = new CSP_Logger();
+    public function __construct($logger = null, $reporter = null) {
+        $this->logger = $logger instanceof CSP_Logger ? $logger : new CSP_Logger();
+        $this->reporter = $reporter instanceof CSP_Reporter ? $reporter : new CSP_Reporter($this->logger);
+
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'register_settings'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+        add_action('admin_notices', array($this, 'show_admin_notices'));
         add_action('wp_ajax_csp_download_log', array($this, 'download_log_file'));
         add_action('wp_ajax_csp_clear_logs', array($this, 'clear_log_files'));
         add_action('wp_ajax_csp_get_log_content', array($this, 'get_log_content'));
+        add_action('wp_ajax_csp_send_test_report', array($this, 'send_test_report'));
     }
     
     /**
@@ -67,6 +75,14 @@ class CSP_Admin {
             'csp-reporting',
             'csp_general_section'
         );
+
+        add_settings_field(
+            'csp_admin_pages',
+            __('Apply to Admin Pages', 'csp-reporting'),
+            array($this, 'csp_admin_pages_callback'),
+            'csp-reporting',
+            'csp_general_section'
+        );
         
         add_settings_section(
             'csp_logging_section',
@@ -95,6 +111,14 @@ class CSP_Admin {
             'enable_admin_notices',
             __('Enable Admin Notices', 'csp-reporting'),
             array($this, 'admin_notices_callback'),
+            'csp-reporting',
+            'csp_logging_section'
+        );
+
+        add_settings_field(
+            'purge_logs_on_uninstall',
+            __('Purge Logs on Uninstall', 'csp-reporting'),
+            array($this, 'purge_logs_callback'),
             'csp-reporting',
             'csp_logging_section'
         );
@@ -141,9 +165,11 @@ class CSP_Admin {
         
         $sanitized['csp_enabled'] = !empty($input['csp_enabled']) ? 1 : 0;
         $sanitized['csp_policy'] = sanitize_textarea_field($input['csp_policy']);
+        $sanitized['csp_admin_pages'] = !empty($input['csp_admin_pages']) ? 1 : 0;
         $sanitized['log_retention_days'] = intval($input['log_retention_days']);
         $sanitized['log_max_size'] = intval($input['log_max_size']);
         $sanitized['enable_admin_notices'] = !empty($input['enable_admin_notices']) ? 1 : 0;
+        $sanitized['purge_logs_on_uninstall'] = !empty($input['purge_logs_on_uninstall']) ? 1 : 0;
         
         // Validate log retention days
         if ($sanitized['log_retention_days'] < 1) {
@@ -205,6 +231,20 @@ class CSP_Admin {
         $enabled = !empty($options['enable_admin_notices']) ? 1 : 0;
         echo '<input type="checkbox" name="csp_reporting_options[enable_admin_notices]" value="1" ' . checked(1, $enabled, false) . ' />';
         echo '<p class="description">' . __('Show admin notices for important CSP events.', 'csp-reporting') . '</p>';
+    }
+
+    public function csp_admin_pages_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = !empty($options['csp_admin_pages']) ? 1 : 0;
+        echo '<input type="checkbox" name="csp_reporting_options[csp_admin_pages]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . __('Also send the CSP header on wp-admin pages. Leave disabled unless your policy is known to be admin-safe.', 'csp-reporting') . '</p>';
+    }
+
+    public function purge_logs_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = !empty($options['purge_logs_on_uninstall']) ? 1 : 0;
+        echo '<input type="checkbox" name="csp_reporting_options[purge_logs_on_uninstall]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . __('Delete the log directory and all violation data when the plugin is uninstalled.', 'csp-reporting') . '</p>';
     }
     
     /**
@@ -305,12 +345,45 @@ class CSP_Admin {
     }
     
     /**
+     * Send a synthetic test report through the full processing pipeline.
+     *
+     * Replaces the 1.x anonymous GET handler on the public endpoint, which
+     * disclosed server paths to unauthenticated visitors.
+     */
+    public function send_test_report() {
+        check_ajax_referer('csp_admin_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array(
+                'message' => __('You do not have sufficient permissions to do this.', 'csp-reporting'),
+            ));
+        }
+
+        $this->reporter->process_report($this->reporter->create_test_report());
+
+        wp_send_json_success(array(
+            'message' => __('Test report processed. Check the logs for the new entry.', 'csp-reporting'),
+        ));
+    }
+
+    /**
      * Show admin notices
      */
     public function show_admin_notices() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
         $options = get_option('csp_reporting_options', array());
-        
+
         if (empty($options['enable_admin_notices'])) {
+            return;
+        }
+
+        // Only surface the summary on the plugin's own settings screen to
+        // avoid nagging on every admin page.
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if (!$screen || $screen->id !== 'settings_page_csp-reporting') {
             return;
         }
         
