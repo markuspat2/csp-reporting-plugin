@@ -316,6 +316,24 @@ class CSP_Database {
     }
 
     /**
+     * Count high-severity violations seen since a given time.
+     *
+     * @param string $since MySQL datetime.
+     * @return int
+     */
+    public function count_high_since($since) {
+        global $wpdb;
+
+        $table = self::table_name();
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE severity = 'high' AND last_seen >= %s",
+            $since
+        ));
+    }
+
+    /**
      * Get distinct directives present in the table (for filter dropdowns).
      *
      * @return string[]

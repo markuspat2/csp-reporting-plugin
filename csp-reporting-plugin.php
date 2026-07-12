@@ -30,6 +30,7 @@ require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-utils.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-policy.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-database.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-logger.php';
+require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-notifications.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-admin.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-reporter.php';
 
@@ -59,6 +60,11 @@ class CSP_Reporting_Plugin {
      * @var CSP_Database
      */
     public $database;
+
+    /**
+     * @var CSP_Notifications
+     */
+    public $notifications;
 
     /**
      * Get singleton instance
@@ -93,9 +99,11 @@ class CSP_Reporting_Plugin {
         $this->logger = new CSP_Logger();
         $this->database = new CSP_Database();
         $this->reporter = new CSP_Reporter($this->logger, $this->database);
+        $this->notifications = new CSP_Notifications($this->database);
 
         if (is_admin()) {
             $this->database->maybe_upgrade($this->logger);
+            CSP_Notifications::schedule(); // No-op when already scheduled; covers upgrades without re-activation.
             $this->admin = new CSP_Admin($this->logger, $this->reporter, $this->database);
         }
 
@@ -146,6 +154,9 @@ class CSP_Reporting_Plugin {
             wp_schedule_event(time(), 'daily', 'csp_cleanup_logs');
         }
 
+        // Schedule notification digest
+        CSP_Notifications::schedule();
+
         // The 1.x rewrite endpoint is gone; drop its stale rules and marker.
         delete_option('csp_reporting_rewrite_version');
         flush_rewrite_rules();
@@ -156,6 +167,7 @@ class CSP_Reporting_Plugin {
      */
     public function deactivate() {
         wp_clear_scheduled_hook('csp_cleanup_logs');
+        CSP_Notifications::unschedule();
     }
 
     /**

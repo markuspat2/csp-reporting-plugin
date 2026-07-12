@@ -18,6 +18,21 @@ if (!defined('ABSPATH')) {
 
     <?php settings_errors('csp_reporting'); ?>
 
+    <?php
+    $export_base = wp_nonce_url(admin_url('admin-post.php?action=csp_export_violations'), 'csp_export_violations');
+    foreach ($list_table->get_filter_args() as $key => $value) {
+        $export_base = add_query_arg($key === 'search' ? 's' : $key, rawurlencode($value), $export_base);
+    }
+    ?>
+    <p class="csp-export-actions">
+        <a href="<?php echo esc_url(add_query_arg('format', 'csv', $export_base)); ?>" class="button button-secondary">
+            <?php _e('Export CSV', 'csp-reporting'); ?>
+        </a>
+        <a href="<?php echo esc_url(add_query_arg('format', 'json', $export_base)); ?>" class="button button-secondary">
+            <?php _e('Export JSON', 'csp-reporting'); ?>
+        </a>
+    </p>
+
     <form method="get">
         <input type="hidden" name="page" value="csp-reporting" />
         <input type="hidden" name="tab" value="violations" />

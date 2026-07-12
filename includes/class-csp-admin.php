@@ -36,6 +36,9 @@ class CSP_Admin {
         add_action('wp_ajax_csp_get_log_content', array($this, 'get_log_content'));
         add_action('wp_ajax_csp_send_test_report', array($this, 'send_test_report'));
         add_action('wp_ajax_csp_allow_source', array($this, 'allow_source'));
+        add_action('wp_ajax_csp_dismiss_notice', array($this, 'dismiss_high_severity_notice'));
+        add_action('admin_post_csp_export_violations', array($this, 'export_violations'));
+        add_action('wp_dashboard_setup', array($this, 'register_dashboard_widget'));
     }
     
     /**
@@ -157,6 +160,53 @@ class CSP_Admin {
             array($this, 'purge_logs_callback'),
             'csp-reporting',
             'csp_logging_section'
+        );
+
+        add_settings_section(
+            'csp_notifications_section',
+            __('Notifications', 'csp-reporting'),
+            array($this, 'notifications_section_callback'),
+            'csp-reporting'
+        );
+
+        add_settings_field(
+            'notify_email_enabled',
+            __('Email Notifications', 'csp-reporting'),
+            array($this, 'notify_email_enabled_callback'),
+            'csp-reporting',
+            'csp_notifications_section'
+        );
+
+        add_settings_field(
+            'notify_email_recipients',
+            __('Recipients', 'csp-reporting'),
+            array($this, 'notify_recipients_callback'),
+            'csp-reporting',
+            'csp_notifications_section'
+        );
+
+        add_settings_field(
+            'notify_digest_frequency',
+            __('Digest Frequency', 'csp-reporting'),
+            array($this, 'notify_frequency_callback'),
+            'csp-reporting',
+            'csp_notifications_section'
+        );
+
+        add_settings_field(
+            'notify_immediate_high',
+            __('Immediate High-Severity Alerts', 'csp-reporting'),
+            array($this, 'notify_immediate_callback'),
+            'csp-reporting',
+            'csp_notifications_section'
+        );
+
+        add_settings_field(
+            'notify_webhook_url',
+            __('Webhook URL', 'csp-reporting'),
+            array($this, 'notify_webhook_callback'),
+            'csp-reporting',
+            'csp_notifications_section'
         );
     }
     
@@ -304,6 +354,16 @@ class CSP_Admin {
         // One pattern per line; empty lines dropped.
         $patterns = isset($input['ignore_patterns']) ? sanitize_textarea_field($input['ignore_patterns']) : '';
         $sanitized['ignore_patterns'] = array_values(array_filter(array_map('trim', preg_split('/[\r\n]+/', $patterns))));
+
+        // Notifications.
+        $sanitized['notify_email_enabled'] = !empty($input['notify_email_enabled']) ? 1 : 0;
+        $sanitized['notify_immediate_high'] = !empty($input['notify_immediate_high']) ? 1 : 0;
+        $sanitized['notify_digest_frequency'] = isset($input['notify_digest_frequency']) && $input['notify_digest_frequency'] === 'weekly' ? 'weekly' : 'daily';
+        $sanitized['notify_webhook_url'] = isset($input['notify_webhook_url']) ? esc_url_raw(trim($input['notify_webhook_url'])) : '';
+
+        $recipients = isset($input['notify_email_recipients']) ? explode(',', $input['notify_email_recipients']) : array();
+        $recipients = array_filter(array_map('sanitize_email', array_map('trim', $recipients)));
+        $sanitized['notify_email_recipients'] = implode(', ', $recipients);
         
         // Validate log retention days
         if ($sanitized['log_retention_days'] < 1) {
@@ -327,6 +387,48 @@ class CSP_Admin {
     
     public function logging_section_callback() {
         echo '<p>' . __('Configure logging behavior and file management.', 'csp-reporting') . '</p>';
+    }
+
+    public function notifications_section_callback() {
+        echo '<p>' . __('Get notified about violation activity by email or a Slack-compatible webhook.', 'csp-reporting') . '</p>';
+    }
+
+    public function notify_email_enabled_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = !empty($options['notify_email_enabled']) ? 1 : 0;
+        echo '<input type="checkbox" name="csp_reporting_options[notify_email_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . __('Send digest emails and (optionally) immediate alerts.', 'csp-reporting') . '</p>';
+    }
+
+    public function notify_recipients_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $recipients = !empty($options['notify_email_recipients']) ? $options['notify_email_recipients'] : get_option('admin_email');
+        echo '<input type="text" class="regular-text" name="csp_reporting_options[notify_email_recipients]" value="' . esc_attr($recipients) . '" />';
+        echo '<p class="description">' . __('Comma-separated email addresses.', 'csp-reporting') . '</p>';
+    }
+
+    public function notify_frequency_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $frequency = isset($options['notify_digest_frequency']) && $options['notify_digest_frequency'] === 'weekly' ? 'weekly' : 'daily';
+        echo '<select name="csp_reporting_options[notify_digest_frequency]">';
+        printf('<option value="daily" %s>%s</option>', selected($frequency, 'daily', false), esc_html__('Daily', 'csp-reporting'));
+        printf('<option value="weekly" %s>%s</option>', selected($frequency, 'weekly', false), esc_html__('Weekly (Mondays)', 'csp-reporting'));
+        echo '</select>';
+        echo '<p class="description">' . __('Digests are only sent when there was violation activity in the period.', 'csp-reporting') . '</p>';
+    }
+
+    public function notify_immediate_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = !empty($options['notify_immediate_high']) ? 1 : 0;
+        echo '<input type="checkbox" name="csp_reporting_options[notify_immediate_high]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . sprintf(__('Alert as soon as a high-severity violation is recorded (throttled to %d alerts per day).', 'csp-reporting'), CSP_Notifications::MAX_ALERTS_PER_DAY) . '</p>';
+    }
+
+    public function notify_webhook_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $url = !empty($options['notify_webhook_url']) ? $options['notify_webhook_url'] : '';
+        echo '<input type="url" class="regular-text code" name="csp_reporting_options[notify_webhook_url]" value="' . esc_attr($url) . '" placeholder="https://hooks.slack.com/services/..." />';
+        echo '<p class="description">' . __('Slack-compatible incoming webhook. Receives the same content as the emails. Leave blank to disable.', 'csp-reporting') . '</p>';
     }
     
     /**
@@ -634,7 +736,8 @@ class CSP_Admin {
     }
 
     /**
-     * Show admin notices
+     * Show a dismissible notice when new high-severity violations arrived
+     * since the user last dismissed it (looking back at most 7 days).
      */
     public function show_admin_notices() {
         if (!current_user_can('manage_options')) {
@@ -647,30 +750,211 @@ class CSP_Admin {
             return;
         }
 
-        // Only surface the summary on the plugin's own settings screen to
-        // avoid nagging on every admin page.
-        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
-        if (!$screen || $screen->id !== 'settings_page_csp-reporting') {
+        $dismissed_at = get_user_meta(get_current_user_id(), 'csp_notice_dismissed_at', true);
+        $week_ago = gmdate('Y-m-d H:i:s', time() - (7 * DAY_IN_SECONDS));
+        $since = ($dismissed_at && $dismissed_at > $week_ago) ? $dismissed_at : $week_ago;
+
+        $count = $this->database->count_high_since($since);
+
+        if ($count < 1) {
             return;
         }
-        
-        $log_stats = $this->logger->get_log_statistics();
-        
-        if ($log_stats['total_entries'] > 0) {
-            $class = 'notice notice-info';
-            $message = sprintf(
-                __('CSP Reporting: %d violations logged across %d files (%s total size).', 'csp-reporting'),
-                $log_stats['total_entries'],
-                $log_stats['total_files'],
-                $log_stats['total_size_formatted']
-            );
-            
-            printf('<div class="%1$s"><p>%2$s <a href="%3$s">%4$s</a></p></div>', 
-                esc_attr($class), 
-                esc_html($message),
-                admin_url('options-general.php?page=csp-reporting'),
-                __('View Reports', 'csp-reporting')
-            );
+
+        printf(
+            '<div class="notice notice-error is-dismissible csp-high-notice"><p>%s <a href="%s">%s</a></p></div>',
+            esc_html(sprintf(
+                _n(
+                    'CSP Reporting: %d new high-severity violation detected.',
+                    'CSP Reporting: %d new high-severity violations detected.',
+                    $count,
+                    'csp-reporting'
+                ),
+                $count
+            )),
+            esc_url(admin_url('options-general.php?page=csp-reporting&tab=violations&severity=high')),
+            esc_html__('Review violations', 'csp-reporting')
+        );
+
+        // Persist dismissal without requiring admin.js on every screen.
+        ?>
+        <script>
+        jQuery(document).on('click', '.csp-high-notice .notice-dismiss', function() {
+            jQuery.post(ajaxurl, {
+                action: 'csp_dismiss_notice',
+                nonce: '<?php echo esc_js(wp_create_nonce('csp_dismiss_notice')); ?>'
+            });
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * Record when the current user dismissed the high-severity notice.
+     */
+    public function dismiss_high_severity_notice() {
+        check_ajax_referer('csp_dismiss_notice', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error();
         }
+
+        update_user_meta(get_current_user_id(), 'csp_notice_dismissed_at', current_time('mysql'));
+
+        wp_send_json_success();
+    }
+
+    /**
+     * Register the at-a-glance dashboard widget.
+     */
+    public function register_dashboard_widget() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        wp_add_dashboard_widget(
+            'csp_reporting_widget',
+            __('CSP Violations', 'csp-reporting'),
+            array($this, 'render_dashboard_widget')
+        );
+    }
+
+    /**
+     * Render the dashboard widget: 7-day sparkline plus top blocked sources.
+     */
+    public function render_dashboard_widget() {
+        $stats = $this->database->get_stats(7);
+
+        echo '<p>' . esc_html(sprintf(
+            /* translators: 1: report count, 2: pattern count */
+            __('%1$s reports across %2$s unique patterns in the last 7 days.', 'csp-reporting'),
+            number_format_i18n($stats['total_hits']),
+            number_format_i18n($stats['unique_patterns'])
+        )) . '</p>';
+
+        echo $this->render_sparkline($stats['by_day']); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- SVG built from integers.
+
+        if (!empty($stats['top_blocked'])) {
+            echo '<h4>' . esc_html__('Top blocked sources', 'csp-reporting') . '</h4><ul>';
+            foreach ($stats['top_blocked'] as $row) {
+                $uri = $row['blocked_uri'] !== '' ? $row['blocked_uri'] : __('(inline)', 'csp-reporting');
+                if (strlen($uri) > 50) {
+                    $uri = substr($uri, 0, 47) . '…';
+                }
+                printf(
+                    '<li><code>%s</code> — %s</li>',
+                    esc_html($uri),
+                    esc_html(number_format_i18n((int) $row['hits']))
+                );
+            }
+            echo '</ul>';
+        }
+
+        printf(
+            '<p><a href="%s">%s</a></p>',
+            esc_url(admin_url('options-general.php?page=csp-reporting&tab=violations')),
+            esc_html__('View all violations →', 'csp-reporting')
+        );
+    }
+
+    /**
+     * Build an inline SVG sparkline from day => count buckets.
+     *
+     * @param array $by_day
+     * @return string
+     */
+    private function render_sparkline($by_day) {
+        $values = array_values(array_map('intval', $by_day));
+        $count = count($values);
+
+        if ($count < 2) {
+            return '';
+        }
+
+        $width = 280;
+        $height = 40;
+        $max = max(1, max($values));
+
+        $points = array();
+        foreach ($values as $i => $value) {
+            $x = round($i * ($width / ($count - 1)), 1);
+            $y = round($height - ($value / $max) * ($height - 4) - 2, 1);
+            $points[] = $x . ',' . $y;
+        }
+
+        return sprintf(
+            '<svg width="%1$d" height="%2$d" viewBox="0 0 %1$d %2$d" role="img" aria-label="%3$s">' .
+            '<polyline fill="none" stroke="#2271b1" stroke-width="2" points="%4$s" /></svg>',
+            $width,
+            $height,
+            esc_attr__('Violations per day, last 7 days', 'csp-reporting'),
+            esc_attr(implode(' ', $points))
+        );
+    }
+
+    /**
+     * Export violations matching the current filters as CSV or JSON.
+     *
+     * Linked from the violations screen via admin-post.php.
+     */
+    public function export_violations() {
+        check_admin_referer('csp_export_violations');
+
+        if (!current_user_can('manage_options')) {
+            wp_die(__('You do not have sufficient permissions to do this.', 'csp-reporting'));
+        }
+
+        $format = isset($_GET['format']) && $_GET['format'] === 'json' ? 'json' : 'csv';
+
+        $args = array(
+            'per_page' => 10000,
+            'paged' => 1,
+            'orderby' => 'last_seen',
+            'order' => 'DESC',
+        );
+
+        if (!empty($_GET['severity'])) {
+            $args['severity'] = sanitize_key($_GET['severity']);
+        }
+        if (!empty($_GET['directive'])) {
+            $args['directive'] = sanitize_text_field(wp_unslash($_GET['directive']));
+        }
+        if (!empty($_GET['s'])) {
+            $args['search'] = sanitize_text_field(wp_unslash($_GET['s']));
+        }
+
+        $rows = $this->database->get_violations($args);
+        $filename = 'csp-violations-' . current_time('Y-m-d') . '.' . $format;
+
+        nocache_headers();
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+
+        if ($format === 'json') {
+            header('Content-Type: application/json; charset=utf-8');
+            echo wp_json_encode($rows, JSON_PRETTY_PRINT);
+            exit;
+        }
+
+        header('Content-Type: text/csv; charset=utf-8');
+
+        $columns = array('severity', 'directive', 'blocked_uri', 'document_uri', 'source_file', 'line_number', 'hit_count', 'first_seen', 'last_seen');
+
+        $output = fopen('php://output', 'w');
+        fputcsv($output, $columns);
+
+        foreach ($rows as $row) {
+            $line = array();
+            foreach ($columns as $column) {
+                $value = isset($row[$column]) ? $row[$column] : '';
+                // Guard against spreadsheet formula injection.
+                if (is_string($value) && $value !== '' && strpbrk($value[0], '=+-@') !== false) {
+                    $value = "'" . $value;
+                }
+                $line[] = $value;
+            }
+            fputcsv($output, $line);
+        }
+
+        fclose($output);
+        exit;
     }
 }
