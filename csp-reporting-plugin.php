@@ -27,6 +27,7 @@ define('CSP_REPORTING_LOG_DIR', WP_CONTENT_DIR . '/csp-reports/');
 
 // Include required files
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-utils.php';
+require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-policy.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-database.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-logger.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-admin.php';
@@ -120,9 +121,14 @@ class CSP_Reporting_Plugin {
         CSP_Database::install();
 
         // Set default options (only added if missing)
+        $default_policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';";
+
         $default_options = array(
             'csp_enabled' => true,
-            'csp_policy' => "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';",
+            'csp_policy' => $default_policy,
+            'csp_policy_directives' => CSP_Policy::parse_policy_text($default_policy),
+            'csp_mode' => CSP_Policy::MODE_REPORT_ONLY,
+            'csp_test_policy' => '',
             'csp_admin_pages' => false,
             'log_retention_days' => 30,
             'log_max_size' => 10485760, // 10MB
@@ -192,7 +198,8 @@ class CSP_Reporting_Plugin {
     }
 
     /**
-     * Build and send the Content-Security-Policy-Report-Only header.
+     * Build and send the CSP header(s) for the configured mode
+     * (report-only, enforce, or both).
      */
     private function output_csp_header() {
         if (headers_sent()) {
@@ -205,21 +212,12 @@ class CSP_Reporting_Plugin {
             return;
         }
 
-        $policy = !empty($options['csp_policy']) ? trim($options['csp_policy']) : '';
+        $policy = new CSP_Policy();
+        $headers = $policy->get_headers(CSP_Utils::get_report_endpoint_url());
 
-        if (empty($policy)) {
-            return;
+        foreach ($headers as $name => $value) {
+            header($name . ': ' . $value);
         }
-
-        // Strip line breaks (invalid in headers) and any hand-written
-        // report-uri — the plugin appends its own endpoint.
-        $policy = preg_replace('/\s+/', ' ', $policy);
-        $policy = preg_replace('/;?\s*report-uri[^;]*/i', '', $policy);
-        $policy = rtrim(trim($policy), ';');
-
-        $report_url = CSP_Utils::get_report_endpoint_url();
-
-        header(sprintf('Content-Security-Policy-Report-Only: %s; report-uri %s', $policy, $report_url));
     }
 
     /**

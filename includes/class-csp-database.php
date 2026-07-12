@@ -252,6 +252,21 @@ class CSP_Database {
     }
 
     /**
+     * Get a single violation by id.
+     *
+     * @param int $id
+     * @return array|null
+     */
+    public function get_violation($id) {
+        global $wpdb;
+
+        $table = self::table_name();
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", (int) $id), ARRAY_A);
+    }
+
+    /**
      * Delete violations by id.
      *
      * @param int[] $ids

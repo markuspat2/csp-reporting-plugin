@@ -174,7 +174,25 @@ class CSP_Violations_List_Table extends WP_List_Table {
             )) . '</small>';
         }
 
-        return $out;
+        $actions = array();
+
+        $directive = CSP_Policy::base_directive($item['directive']);
+        $source = CSP_Policy::source_from_blocked_uri($item['blocked_uri']);
+
+        if ($directive && $source) {
+            $actions['allow'] = sprintf(
+                '<a href="#" class="csp-allow-source" data-id="%d">%s</a>',
+                (int) $item['id'],
+                sprintf(
+                    /* translators: 1: origin, 2: directive */
+                    esc_html__('Allow %1$s in %2$s', 'csp-reporting'),
+                    esc_html($source),
+                    esc_html($directive)
+                )
+            );
+        }
+
+        return $out . $this->row_actions($actions);
     }
 
     protected function column_document_uri($item) {

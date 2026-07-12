@@ -198,6 +198,22 @@ class CSP_Reporter {
 
         $enriched_report = $this->enrich_report_data($report_data);
 
+        /**
+         * Filter the enriched report before it is stored.
+         *
+         * Return a falsy value to discard the report.
+         *
+         * @param array $enriched_report Report payload plus server_info,
+         *                               client_ip, and severity keys.
+         */
+        $enriched_report = apply_filters('csp_report_data', $enriched_report);
+
+        if (empty($enriched_report) || !isset($enriched_report['csp-report'])) {
+            return false;
+        }
+
+        $csp_report = $enriched_report['csp-report'];
+
         $stored = $this->database->insert_violation(array(
             'severity' => $enriched_report['severity'],
             'directive' => $csp_report['violated-directive'],
@@ -219,6 +235,16 @@ class CSP_Reporter {
         $options = get_option('csp_reporting_options', array());
         if (!empty($options['file_logging_enabled'])) {
             $this->logger->log_violation($enriched_report);
+        }
+
+        if ($stored) {
+            /**
+             * Fires after a violation report has been recorded.
+             *
+             * @param array $enriched_report The stored report payload.
+             * @param string $severity low|medium|high.
+             */
+            do_action('csp_violation_logged', $enriched_report, $enriched_report['severity']);
         }
 
         $this->check_admin_notifications($enriched_report);

@@ -35,6 +35,7 @@ class CSP_Admin {
         add_action('wp_ajax_csp_clear_logs', array($this, 'clear_log_files'));
         add_action('wp_ajax_csp_get_log_content', array($this, 'get_log_content'));
         add_action('wp_ajax_csp_send_test_report', array($this, 'send_test_report'));
+        add_action('wp_ajax_csp_allow_source', array($this, 'allow_source'));
     }
     
     /**
@@ -72,9 +73,17 @@ class CSP_Admin {
         );
         
         add_settings_field(
+            'csp_mode',
+            __('Delivery Mode', 'csp-reporting'),
+            array($this, 'csp_mode_callback'),
+            'csp-reporting',
+            'csp_general_section'
+        );
+
+        add_settings_field(
             'csp_policy',
-            __('CSP Policy', 'csp-reporting'),
-            array($this, 'csp_policy_callback'),
+            __('Policy Directives', 'csp-reporting'),
+            array($this, 'policy_builder_callback'),
             'csp-reporting',
             'csp_general_section'
         );
@@ -161,6 +170,7 @@ class CSP_Admin {
         
         wp_enqueue_style('csp-admin-style', CSP_REPORTING_PLUGIN_URL . 'assets/admin.css', array(), CSP_REPORTING_VERSION);
         wp_enqueue_script('csp-admin-script', CSP_REPORTING_PLUGIN_URL . 'assets/admin.js', array('jquery'), CSP_REPORTING_VERSION, true);
+        wp_enqueue_script('csp-policy-builder', CSP_REPORTING_PLUGIN_URL . 'assets/policy-builder.js', array('jquery'), CSP_REPORTING_VERSION, true);
         
         wp_localize_script('csp-admin-script', 'csp_admin_ajax', array(
             'ajax_url' => admin_url('admin-ajax.php'),
@@ -247,10 +257,42 @@ class CSP_Admin {
      * Sanitize options
      */
     public function sanitize_options($input) {
-        $sanitized = array();
-        
+        // Start from the stored options so keys the form doesn't submit
+        // (or that other code manages) survive a save.
+        $sanitized = get_option('csp_reporting_options', array());
+
         $sanitized['csp_enabled'] = !empty($input['csp_enabled']) ? 1 : 0;
-        $sanitized['csp_policy'] = sanitize_textarea_field($input['csp_policy']);
+
+        $valid_modes = array(CSP_Policy::MODE_REPORT_ONLY, CSP_Policy::MODE_ENFORCE, CSP_Policy::MODE_BOTH);
+        $sanitized['csp_mode'] = isset($input['csp_mode']) && in_array($input['csp_mode'], $valid_modes, true)
+            ? $input['csp_mode']
+            : CSP_Policy::MODE_REPORT_ONLY;
+
+        $sanitized['csp_test_policy'] = isset($input['csp_test_policy']) ? sanitize_textarea_field($input['csp_test_policy']) : '';
+
+        // Policy builder: sanitize each directive's source list. Semicolons
+        // and line breaks are stripped so a value cannot inject directives.
+        $directives = array();
+        if (!empty($input['csp_policy_directives']) && is_array($input['csp_policy_directives'])) {
+            foreach (CSP_Policy::source_directives() as $directive) {
+                if (!isset($input['csp_policy_directives'][$directive])) {
+                    continue;
+                }
+                $value = sanitize_text_field($input['csp_policy_directives'][$directive]);
+                $value = trim(preg_replace('/[;,]+/', ' ', $value));
+                $value = preg_replace('/\s+/', ' ', $value);
+                if ($value !== '') {
+                    $directives[$directive] = $value;
+                }
+            }
+            foreach (CSP_Policy::flag_directives() as $directive) {
+                if (!empty($input['csp_policy_directives'][$directive])) {
+                    $directives[$directive] = '';
+                }
+            }
+        }
+        $sanitized['csp_policy_directives'] = $directives;
+
         $sanitized['csp_admin_pages'] = !empty($input['csp_admin_pages']) ? 1 : 0;
         $sanitized['log_retention_days'] = intval($input['log_retention_days']);
         $sanitized['log_max_size'] = intval($input['log_max_size']);
@@ -297,11 +339,82 @@ class CSP_Admin {
         echo '<p class="description">' . __('Enable CSP report-only headers on your site.', 'csp-reporting') . '</p>';
     }
     
-    public function csp_policy_callback() {
+    public function csp_mode_callback() {
+        $policy = new CSP_Policy();
+        $mode = $policy->get_mode();
         $options = get_option('csp_reporting_options', array());
-        $policy = !empty($options['csp_policy']) ? $options['csp_policy'] : '';
-        echo '<textarea name="csp_reporting_options[csp_policy]" rows="5" cols="80" class="large-text code">' . esc_textarea($policy) . '</textarea>';
-        echo '<p class="description">' . __('Enter your Content Security Policy directives. Use semicolons to separate directives.', 'csp-reporting') . '</p>';
+
+        $modes = array(
+            CSP_Policy::MODE_REPORT_ONLY => __('Report-Only — log violations, block nothing (recommended while tuning)', 'csp-reporting'),
+            CSP_Policy::MODE_ENFORCE => __('Enforce — block violations and report them', 'csp-reporting'),
+            CSP_Policy::MODE_BOTH => __('Enforce + Test — enforce this policy while report-only testing a stricter one', 'csp-reporting'),
+        );
+
+        echo '<select name="csp_reporting_options[csp_mode]" id="csp-mode-select">';
+        foreach ($modes as $value => $label) {
+            printf('<option value="%s" %s>%s</option>', esc_attr($value), selected($mode, $value, false), esc_html($label));
+        }
+        echo '</select>';
+
+        $test_policy = !empty($options['csp_test_policy']) ? $options['csp_test_policy'] : '';
+        $hidden = $mode === CSP_Policy::MODE_BOTH ? '' : ' style="display:none;"';
+        echo '<div id="csp-test-policy-row"' . $hidden . '>';
+        echo '<p><label for="csp-test-policy">' . __('Test policy (sent as Report-Only alongside the enforced policy):', 'csp-reporting') . '</label></p>';
+        echo '<textarea id="csp-test-policy" name="csp_reporting_options[csp_test_policy]" rows="4" class="large-text code">' . esc_textarea($test_policy) . '</textarea>';
+        echo '</div>';
+    }
+
+    public function policy_builder_callback() {
+        $policy = new CSP_Policy();
+        $directives = $policy->get_directives();
+        ?>
+        <table class="csp-policy-builder widefat striped" id="csp-policy-builder">
+            <thead>
+                <tr>
+                    <th style="width:180px;"><?php esc_html_e('Directive', 'csp-reporting'); ?></th>
+                    <th><?php esc_html_e('Sources (space-separated; blank omits the directive)', 'csp-reporting'); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach (CSP_Policy::source_directives() as $directive) : ?>
+                <tr>
+                    <td><code><?php echo esc_html($directive); ?></code></td>
+                    <td>
+                        <input type="text"
+                               class="large-text code csp-directive-input"
+                               data-directive="<?php echo esc_attr($directive); ?>"
+                               name="csp_reporting_options[csp_policy_directives][<?php echo esc_attr($directive); ?>]"
+                               value="<?php echo esc_attr(isset($directives[$directive]) ? $directives[$directive] : ''); ?>" />
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                <?php foreach (CSP_Policy::flag_directives() as $directive) : ?>
+                <tr>
+                    <td><code><?php echo esc_html($directive); ?></code></td>
+                    <td>
+                        <label>
+                            <input type="checkbox"
+                                   name="csp_reporting_options[csp_policy_directives][<?php echo esc_attr($directive); ?>]"
+                                   value="1" <?php checked(isset($directives[$directive])); ?> />
+                            <?php esc_html_e('Enabled', 'csp-reporting'); ?>
+                        </label>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <p class="csp-policy-presets">
+            <strong><?php esc_html_e('Presets:', 'csp-reporting'); ?></strong>
+            <button type="button" class="button button-small csp-preset" data-preset="google-fonts"><?php esc_html_e('Google Fonts', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="google-analytics"><?php esc_html_e('Google Analytics', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="gtm"><?php esc_html_e('Tag Manager', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="youtube"><?php esc_html_e('YouTube', 'csp-reporting'); ?></button>
+        </p>
+        <p class="description">
+            <?php esc_html_e('The generated header preview updates as you type.', 'csp-reporting'); ?>
+        </p>
+        <pre id="csp-policy-preview" class="code" style="white-space:pre-wrap;"></pre>
+        <?php
     }
     
     public function log_retention_callback() {
@@ -456,6 +569,48 @@ class CSP_Admin {
         ));
     }
     
+    /**
+     * One-click "Allow this source": add the blocked origin to the violated
+     * directive in the stored policy.
+     */
+    public function allow_source() {
+        check_ajax_referer('csp_admin_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array(
+                'message' => __('You do not have sufficient permissions to do this.', 'csp-reporting'),
+            ));
+        }
+
+        $id = isset($_POST['violation_id']) ? intval($_POST['violation_id']) : 0;
+        $violation = $this->database->get_violation($id);
+
+        if (!$violation) {
+            wp_send_json_error(array('message' => __('Violation not found.', 'csp-reporting')));
+        }
+
+        $directive = CSP_Policy::base_directive($violation['directive']);
+        $source = CSP_Policy::source_from_blocked_uri($violation['blocked_uri']);
+
+        if (!$directive || !$source) {
+            wp_send_json_error(array(
+                'message' => __('This violation has no allowable source (inline/eval violations need a policy change, not a new source).', 'csp-reporting'),
+            ));
+        }
+
+        $policy = new CSP_Policy();
+
+        if (!$policy->add_source($directive, $source)) {
+            wp_send_json_error(array(
+                'message' => sprintf(__('%1$s is already allowed for %2$s.', 'csp-reporting'), $source, $directive),
+            ));
+        }
+
+        wp_send_json_success(array(
+            'message' => sprintf(__('Added %1$s to %2$s. The updated policy is live on the next page load.', 'csp-reporting'), $source, $directive),
+        ));
+    }
+
     /**
      * Send a synthetic test report through the full processing pipeline.
      *
