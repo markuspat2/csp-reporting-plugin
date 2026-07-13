@@ -1,18 +1,20 @@
 <?php
 /**
  * Admin Page Template
- * 
+ *
  * Template for the CSP Reporting admin settings page
  */
 
-if (!defined('ABSPATH')) {
+if ( ! defined('ABSPATH')) {
     exit;
 }
 ?>
 
 <div class="wrap csp-admin-page">
-    <h1><?php _e('CSP Reporting Settings', 'csp-reporting'); ?></h1>
-    
+    <h1><?php esc_html_e('CSP Reporting Settings', 'csp-reporting'); ?></h1>
+
+    <?php $this->render_tabs('settings'); ?>
+
     <?php settings_errors(); ?>
     
     <div class="csp-admin-content">
@@ -28,92 +30,105 @@ if (!defined('ABSPATH')) {
         
         <div class="csp-sidebar">
             <div class="csp-widget">
-                <h3><?php _e('Plugin Status', 'csp-reporting'); ?></h3>
+                <h3><?php esc_html_e('Plugin Status', 'csp-reporting'); ?></h3>
                 <div class="csp-status">
                     <div class="status-item">
-                        <span class="status-label"><?php _e('CSP Reporting:', 'csp-reporting'); ?></span>
-                        <span class="status-value <?php echo !empty($options['csp_enabled']) ? 'csp-status-enabled' : 'csp-status-disabled'; ?>">
-                            <?php echo !empty($options['csp_enabled']) ? __('Enabled', 'csp-reporting') : __('Disabled', 'csp-reporting'); ?>
+                        <span class="status-label"><?php esc_html_e('CSP Reporting:', 'csp-reporting'); ?></span>
+                        <span class="status-value <?php echo ! empty($options['csp_enabled']) ? 'csp-status-enabled' : 'csp-status-disabled'; ?>">
+                            <?php echo ! empty($options['csp_enabled']) ? esc_html__('Enabled', 'csp-reporting') : esc_html__('Disabled', 'csp-reporting'); ?>
                         </span>
                     </div>
                     <div class="status-item">
-                        <span class="status-label"><?php _e('Endpoint URL:', 'csp-reporting'); ?></span>
-                        <span class="status-value"><?php echo home_url('/csp-report-endpoint/'); ?></span>
+                        <span class="status-label"><?php esc_html_e('Endpoint URL:', 'csp-reporting'); ?></span>
+                        <span class="status-value"><?php echo esc_url(CSP_Utils::get_report_endpoint_url()); ?></span>
                     </div>
                 </div>
             </div>
             
             <div class="csp-widget">
-                <h3><?php _e('Log Statistics', 'csp-reporting'); ?></h3>
+                <h3><?php esc_html_e('Violations (Last 7 Days)', 'csp-reporting'); ?></h3>
                 <div class="csp-stats">
                     <div class="stat-item">
-                        <span class="stat-label"><?php _e('Total Files:', 'csp-reporting'); ?></span>
+                        <span class="stat-label"><?php esc_html_e('Total Reports:', 'csp-reporting'); ?></span>
+                        <span class="stat-value"><?php echo esc_html(number_format_i18n($db_stats['total_hits'])); ?></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label"><?php esc_html_e('Unique Patterns:', 'csp-reporting'); ?></span>
+                        <span class="stat-value"><?php echo esc_html(number_format_i18n($db_stats['unique_patterns'])); ?></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label"><?php esc_html_e('High Severity:', 'csp-reporting'); ?></span>
+                        <span class="stat-value"><?php echo esc_html(number_format_i18n($db_stats['by_severity']['high'])); ?></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label"><?php esc_html_e('Medium Severity:', 'csp-reporting'); ?></span>
+                        <span class="stat-value"><?php echo esc_html(number_format_i18n($db_stats['by_severity']['medium'])); ?></span>
+                    </div>
+                </div>
+                <p>
+                    <a href="<?php echo esc_url(add_query_arg(array( 'page' => 'csp-reporting', 'tab' => 'violations' ), admin_url('options-general.php'))); ?>" class="button button-secondary">
+                        <?php esc_html_e('View All Violations', 'csp-reporting'); ?>
+                    </a>
+                </p>
+            </div>
+
+            <?php if ( ! empty($options['file_logging_enabled'])) : ?>
+            <div class="csp-widget">
+                <h3><?php esc_html_e('Log Files', 'csp-reporting'); ?></h3>
+                <div class="csp-stats">
+                    <div class="stat-item">
+                        <span class="stat-label"><?php esc_html_e('Total Files:', 'csp-reporting'); ?></span>
                         <span class="stat-value"><?php echo esc_html($log_stats['total_files']); ?></span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-label"><?php _e('Total Entries:', 'csp-reporting'); ?></span>
-                        <span class="stat-value"><?php echo esc_html($log_stats['total_entries']); ?></span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label"><?php _e('Total Size:', 'csp-reporting'); ?></span>
+                        <span class="stat-label"><?php esc_html_e('Total Size:', 'csp-reporting'); ?></span>
                         <span class="stat-value"><?php echo esc_html($log_stats['total_size_formatted']); ?></span>
                     </div>
-                    <?php if ($log_stats['newest_file']): ?>
-                    <div class="stat-item">
-                        <span class="stat-label"><?php _e('Newest File:', 'csp-reporting'); ?></span>
-                        <span class="stat-value"><?php echo esc_html($log_stats['newest_file']); ?></span>
-                    </div>
-                    <?php endif; ?>
                 </div>
             </div>
-            
-            <?php if (!empty($log_files)): ?>
+            <?php endif; ?>
+
+            <?php if ( ! empty($log_files)) : ?>
             <div class="csp-widget">
-                <h3><?php _e('Log Files', 'csp-reporting'); ?></h3>
+                <h3><?php esc_html_e('Log Files', 'csp-reporting'); ?></h3>
                 <div class="csp-log-files">
-                    <?php foreach (array_slice($log_files, 0, 10) as $file): ?>
+                    <?php foreach (array_slice($log_files, 0, 10) as $file) : ?>
                     <div class="log-file-item">
                         <span class="file-name"><?php echo esc_html(basename($file)); ?></span>
                         <div class="file-actions">
                             <button type="button" class="button button-small view-log" data-file="<?php echo esc_attr($file); ?>">
-                                <?php _e('View', 'csp-reporting'); ?>
+                                <?php esc_html_e('View', 'csp-reporting'); ?>
                             </button>
                             <button type="button" class="button button-small download-log" data-file="<?php echo esc_attr($file); ?>">
-                                <?php _e('Download', 'csp-reporting'); ?>
+                                <?php esc_html_e('Download', 'csp-reporting'); ?>
                             </button>
                         </div>
                     </div>
                     <?php endforeach; ?>
                     
-                    <?php if (count($log_files) > 10): ?>
+                    <?php if (count($log_files) > 10) : ?>
                     <p class="more-files">
-                        <?php printf(__('... and %d more files', 'csp-reporting'), count($log_files) - 10); ?>
+                        <?php echo esc_html(sprintf(__('... and %d more files', 'csp-reporting'), count($log_files) - 10)); ?>
                     </p>
                     <?php endif; ?>
                 </div>
                 
                 <div class="log-actions">
                     <button type="button" class="button button-secondary" id="clear-logs">
-                        <?php _e('Clear All Logs', 'csp-reporting'); ?>
+                        <?php esc_html_e('Clear All Logs', 'csp-reporting'); ?>
                     </button>
                 </div>
             </div>
             <?php endif; ?>
             
             <div class="csp-widget">
-                <h3><?php _e('Quick Actions', 'csp-reporting'); ?></h3>
+                <h3><?php esc_html_e('Quick Actions', 'csp-reporting'); ?></h3>
                 <div class="quick-actions">
-                    <a href="<?php echo home_url('/csp-report-endpoint/'); ?>" target="_blank" class="button button-secondary">
-                        <?php _e('Test Endpoint', 'csp-reporting'); ?>
-                    </a>
                     <button type="button" class="button button-secondary" id="send-test-report">
-                        <?php _e('Send Test Report', 'csp-reporting'); ?>
+                        <?php esc_html_e('Send Test Report', 'csp-reporting'); ?>
                     </button>
-                    <a href="<?php echo home_url('/?csp_debug_rewrite=1'); ?>" target="_blank" class="button button-secondary">
-                        <?php _e('Debug Rewrite Rules', 'csp-reporting'); ?>
-                    </a>
                     <button type="button" class="button button-secondary" id="refresh-stats">
-                        <?php _e('Refresh Statistics', 'csp-reporting'); ?>
+                        <?php esc_html_e('Refresh Statistics', 'csp-reporting'); ?>
                     </button>
                 </div>
             </div>
@@ -124,7 +139,7 @@ if (!defined('ABSPATH')) {
     <div id="log-viewer-modal" class="csp-modal" style="display: none;">
         <div class="csp-modal-content">
             <div class="csp-modal-header">
-                <h3><?php _e('Log File Viewer', 'csp-reporting'); ?></h3>
+                <h3><?php esc_html_e('Log File Viewer', 'csp-reporting'); ?></h3>
                 <span class="csp-modal-close">&times;</span>
             </div>
             <div class="csp-modal-body">
@@ -132,125 +147,15 @@ if (!defined('ABSPATH')) {
             </div>
             <div class="csp-modal-footer">
                 <button type="button" class="button button-primary" id="download-current-log">
-                    <?php _e('Download', 'csp-reporting'); ?>
+                    <?php esc_html_e('Download', 'csp-reporting'); ?>
                 </button>
                 <button type="button" class="button button-secondary csp-modal-close">
-                    <?php _e('Close', 'csp-reporting'); ?>
+                    <?php esc_html_e('Close', 'csp-reporting'); ?>
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<script type="text/javascript">
-jQuery(document).ready(function($) {
-    var currentLogFile = null;
-    
-    // View log file
-    $('.view-log').on('click', function() {
-        var filePath = $(this).data('file');
-        currentLogFile = filePath;
-        
-        $.ajax({
-            url: ajaxurl,
-            type: 'POST',
-            data: {
-                action: 'csp_get_log_content',
-                file_path: filePath,
-                nonce: csp_admin_ajax.nonce
-            },
-            success: function(response) {
-                if (response.success) {
-                    $('#log-content').text(response.data.content);
-                    $('#log-viewer-modal').show();
-                } else {
-                    alert(csp_admin_ajax.strings.error_occurred);
-                }
-            },
-            error: function() {
-                alert(csp_admin_ajax.strings.error_occurred);
-            }
-        });
-    });
-    
-    // Download log file
-    $('.download-log, #download-current-log').on('click', function() {
-        var filePath = currentLogFile || $(this).data('file');
-        
-        if (!filePath) {
-            alert(csp_admin_ajax.strings.error_occurred);
-            return;
-        }
-        
-        var form = $('<form>', {
-            method: 'POST',
-            action: csp_admin_ajax.ajax_url
-        });
-        
-        form.append($('<input>', {
-            type: 'hidden',
-            name: 'action',
-            value: 'csp_download_log'
-        }));
-        
-        form.append($('<input>', {
-            type: 'hidden',
-            name: 'file_path',
-            value: filePath
-        }));
-        
-        form.append($('<input>', {
-            type: 'hidden',
-            name: 'nonce',
-            value: csp_admin_ajax.nonce
-        }));
-        
-        $('body').append(form);
-        form.submit();
-        form.remove();
-    });
-    
-    // Clear logs
-    $('#clear-logs').on('click', function() {
-        if (confirm(csp_admin_ajax.strings.confirm_clear_logs)) {
-            $.ajax({
-                url: csp_admin_ajax.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'csp_clear_logs',
-                    nonce: csp_admin_ajax.nonce
-                },
-                success: function(response) {
-                    if (response.success) {
-                        alert(response.data.message);
-                        location.reload();
-                    } else {
-                        alert(csp_admin_ajax.strings.error_occurred);
-                    }
-                },
-                error: function() {
-                    alert(csp_admin_ajax.strings.error_occurred);
-                }
-            });
-        }
-    });
-    
-    // Refresh statistics
-    $('#refresh-stats').on('click', function() {
-        location.reload();
-    });
-    
-    // Close modal
-    $('.csp-modal-close').on('click', function() {
-        $('#log-viewer-modal').hide();
-    });
-    
-    // Close modal on outside click
-    $(window).on('click', function(e) {
-        if (e.target.id === 'log-viewer-modal') {
-            $('#log-viewer-modal').hide();
-        }
-    });
-});
-</script>
+
 

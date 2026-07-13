@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<ruleset name="CSP Reporting Plugin">
+    <description>Coding standards for the CSP Reporting plugin.</description>
+
+    <file>.</file>
+    <exclude-pattern>vendor/*</exclude-pattern>
+    <exclude-pattern>node_modules/*</exclude-pattern>
+    <exclude-pattern>tests/*</exclude-pattern>
+
+    <arg value="sp"/>
+    <arg name="extensions" value="php"/>
+    <arg name="parallel" value="8"/>
+
+    <rule ref="WordPress-Extra">
+        <!-- The codebase predates these standards; enforce security- and
+             correctness-relevant sniffs first, style follows over time. -->
+        <exclude name="WordPress.Files.FileName"/>
+        <exclude name="Generic.WhiteSpace.DisallowSpaceIndent"/>
+        <exclude name="WordPress.WhiteSpace.ControlStructureSpacing"/>
+        <exclude name="WordPress.Arrays"/>
+        <exclude name="Squiz.Commenting"/>
+        <exclude name="Generic.Commenting"/>
+        <exclude name="WordPress.NamingConventions.ValidVariableName"/>
+        <exclude name="Universal.Arrays.DisallowShortArraySyntax"/>
+        <exclude name="PEAR.Functions.FunctionCallSignature"/>
+        <exclude name="Generic.Functions.FunctionCallArgumentSpacing"/>
+        <exclude name="WordPress.PHP.YodaConditions"/>
+
+        <!-- The plugin manages its own log files in wp-content/csp-reports/;
+             WP_Filesystem is meant for user-initiated file management. -->
+        <exclude name="WordPress.WP.AlternativeFunctions"/>
+
+        <!-- error_log() is the plugin's deliberate last-resort channel when
+             its own storage fails. -->
+        <exclude name="WordPress.PHP.DevelopmentFunctions.error_log_error_log"/>
+
+        <exclude name="WordPress.WP.I18n.MissingTranslatorsComment"/>
+        <exclude name="Generic.CodeAnalysis.UnusedFunctionParameter"/>
+    </rule>
+
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array">
+                <element value="csp-reporting"/>
+            </property>
+        </properties>
+    </rule>
+
+    <!-- Table names are built from $wpdb->prefix and query fragments from
+         whitelisted values / $wpdb->prepare(); nothing user-controlled is
+         interpolated. -->
+    <rule ref="WordPress.DB.PreparedSQL">
+        <exclude-pattern>includes/class-csp-database\.php</exclude-pattern>
+        <exclude-pattern>uninstall\.php</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.DB.DirectDatabaseQuery">
+        <exclude-pattern>includes/class-csp-database\.php</exclude-pattern>
+        <exclude-pattern>uninstall\.php</exclude-pattern>
+    </rule>
+
+    <!-- List-table filters (severity/directive/search/orderby) are read-only
+         display parameters; bulk actions themselves are nonce-checked. -->
+    <rule ref="WordPress.Security.NonceVerification.Recommended">
+        <exclude-pattern>includes/class-csp-list-table\.php</exclude-pattern>
+    </rule>
+
+    <config name="minimum_wp_version" value="5.9"/>
+</ruleset>
