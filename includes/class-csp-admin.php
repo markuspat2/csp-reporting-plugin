@@ -600,6 +600,12 @@ class CSP_Admin {
             <button type="button" class="button button-small csp-preset" data-preset="google-analytics"><?php esc_html_e('Google Analytics', 'csp-reporting'); ?></button>
             <button type="button" class="button button-small csp-preset" data-preset="gtm"><?php esc_html_e('Tag Manager', 'csp-reporting'); ?></button>
             <button type="button" class="button button-small csp-preset" data-preset="youtube"><?php esc_html_e('YouTube', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="recaptcha"><?php esc_html_e('reCAPTCHA', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="jetpack"><?php esc_html_e('Jetpack / WordPress.com', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="userway"><?php esc_html_e('UserWay', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="userback"><?php esc_html_e('Userback', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="cloudflare-insights"><?php esc_html_e('Cloudflare Insights', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="jsdelivr"><?php esc_html_e('jsDelivr', 'csp-reporting'); ?></button>
         </p>
         <p class="description">
             <?php esc_html_e('The generated header preview updates as you type.', 'csp-reporting'); ?>
@@ -1093,6 +1099,16 @@ class CSP_Admin {
         $rows     = $this->database->get_violations($args);
         $filename = 'csp-violations-' . current_time('Y-m-d') . '.' . $format;
 
+        // wpdb returns every column as a string; export numerics as numbers.
+        foreach ($rows as &$row) {
+            foreach (array( 'id', 'line_number', 'column_number', 'hit_count' ) as $int_column) {
+                if (isset($row[$int_column])) {
+                    $row[$int_column] = (int) $row[$int_column];
+                }
+            }
+        }
+        unset($row);
+
         nocache_headers();
         header('Content-Disposition: attachment; filename="' . $filename . '"');
 
@@ -1104,7 +1120,7 @@ class CSP_Admin {
 
         header('Content-Type: text/csv; charset=utf-8');
 
-        $columns = array( 'severity', 'directive', 'blocked_uri', 'document_uri', 'source_file', 'line_number', 'hit_count', 'first_seen', 'last_seen' );
+        $columns = array( 'severity', 'directive', 'blocked_origin', 'blocked_uri', 'document_uri', 'source_file', 'line_number', 'hit_count', 'first_seen', 'last_seen' );
 
         $output = fopen('php://output', 'w');
         fputcsv($output, $columns);

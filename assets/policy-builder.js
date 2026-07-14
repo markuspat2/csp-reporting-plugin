@@ -26,6 +26,37 @@
         'youtube': {
             'frame-src': ['https://www.youtube.com', 'https://www.youtube-nocookie.com'],
             'img-src': ['https://i.ytimg.com']
+        },
+        'recaptcha': {
+            'script-src': ['https://www.google.com', 'https://www.gstatic.com'],
+            'frame-src': ['https://www.google.com']
+        },
+        'jetpack': {
+            'script-src': ['https://s0.wp.com', 'https://stats.wp.com'],
+            'style-src': ['https://s0.wp.com'],
+            'img-src': ['https://s0.wp.com', 'https://pixel.wp.com'],
+            'frame-src': ['https://wordpress.com', 'https://widgets.wp.com'],
+            'connect-src': ['https://stats.wp.com']
+        },
+        'userway': {
+            'script-src': ['https://cdn.userway.org'],
+            'style-src': ['https://cdn.userway.org'],
+            'img-src': ['https://cdn.userway.org'],
+            'connect-src': ['https://api.userway.org']
+        },
+        'userback': {
+            'script-src': ['https://static.userback.io'],
+            'style-src': ['https://static.userback.io'],
+            'connect-src': ['https://api.userback.io']
+        },
+        'cloudflare-insights': {
+            'script-src': ['https://static.cloudflareinsights.com'],
+            'connect-src': ['https://cloudflareinsights.com']
+        },
+        'jsdelivr': {
+            'script-src': ['https://cdn.jsdelivr.net'],
+            'style-src': ['https://cdn.jsdelivr.net'],
+            'font-src': ['https://cdn.jsdelivr.net']
         }
     };
 

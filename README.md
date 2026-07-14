@@ -14,11 +14,14 @@ and WP-CLI automation.
   admin UI with a live header preview and presets for common services
   (Google Fonts, Analytics, Tag Manager, YouTube).
 - **Database-backed violation storage** — violations land in a dedicated
-  table, deduplicated by directive + blocked URI + page with hit counters
-  and first/last-seen timestamps.
+  table, deduplicated by directive + blocked URI + page (query strings and
+  cache-busters ignored) with hit counters and first/last-seen timestamps.
 - **Violations screen** — sortable, filterable, searchable list table with
   severity badges, bulk delete, and one-click **"Allow this source"** that
   adds a blocked origin to the right directive.
+- **"By Source" rollup** — one row per blocked origin + directive with an
+  in-policy status column and a bulk **Allow Selected Sources** action:
+  review everything the policy blocked and fix the policy in one step.
 - **Noise controls** — ignore patterns drop browser-extension and other
   junk reports before storage; per-IP and site-wide rate limits protect the
   endpoint from floods.
@@ -64,8 +67,9 @@ and WP-CLI automation.
 1. Start in **Report-Only** mode with the default policy.
 2. Let it collect violations for a few days; the digest email summarizes
    activity.
-3. For each legitimate blocked source, use **Allow this source** (or edit
-   the directive in the policy builder). Add ignore patterns for noise.
+3. Open **Violations → By Source**, check every origin that belongs on the
+   site, and click **Allow Selected Sources**. Add ignore patterns for
+   noise; use presets in the policy builder for common services.
 4. When new violations dry up, switch to **Enforce**.
 5. To tighten further (e.g. removing `'unsafe-inline'`), use
    **Enforce + Test** mode: keep enforcing the known-good policy while
@@ -84,6 +88,7 @@ and WP-CLI automation.
 | Raw File Logging | off | Also write NDJSON logs to `wp-content/csp-reports/`. |
 | Rate Limit | 30/min/IP | Reports accepted per IP per minute (0 disables). |
 | Ignore Patterns | extension noise | Substrings that drop matching reports. |
+| Store Client IP Addresses | off | Record reporter IPs with violations. Off by default — IPs are personal data (GDPR) and aren't needed for policy tuning; rate limiting works regardless. |
 | Enable Admin Notices | on | Dismissible notice for new high-severity violations. |
 | Purge Logs on Uninstall | off | Delete all data when the plugin is uninstalled. |
 | Notifications | off | Email digests, immediate alerts, webhook URL. |

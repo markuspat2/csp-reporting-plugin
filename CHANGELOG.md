@@ -3,6 +3,33 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] - 2026-07-14
+
+Tuning pass driven by the first live deployment.
+
+### Fixed
+- Deduplication was defeated by per-request query strings (scanner tokens,
+  `?ver=` cache-busters): one violation pattern created a new row per
+  crawled URL. Hashes are now computed on URLs normalized to
+  scheme://host/path, and the upgrade migration merges existing duplicate
+  rows (hit counts summed, first/last-seen widened).
+
+### Changed
+- **Client IP addresses are no longer stored by default.** IPs are personal
+  data; a new "Store Client IP Addresses" setting re-enables recording.
+  Rate limiting is unaffected.
+
+### Added
+- **"By Source" rollup view** on the Violations tab: one row per blocked
+  origin + directive with reports, affected pages, worst severity, and an
+  in-policy status — plus a bulk **Allow Selected Sources** action that
+  writes the checked origins straight into the policy.
+- Indexed `blocked_origin` column powering the rollup and status checks.
+- Policy-builder presets for reCAPTCHA, Jetpack/WordPress.com, UserWay,
+  Userback, Cloudflare Insights, and jsDelivr.
+- JSON export now includes `blocked_origin` and emits numeric fields as
+  numbers instead of strings.
+
 ## [2.0.0] - 2026-07-12
 
 ### Fixed
