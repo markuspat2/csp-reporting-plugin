@@ -279,6 +279,47 @@ class CSP_Policy {
     }
 
     /**
+     * Check whether an origin is already allowed for a (possibly granular)
+     * directive in the stored policy.
+     *
+     * Matches the exact origin, a bare-host entry, or a '*' wildcard on the
+     * base directive; falls back to default-src when the base directive is
+     * not set, mirroring browser fallback behavior.
+     *
+     * @param string $violated_directive e.g. script-src-elem.
+     * @param string $origin e.g. https://cdn.example.com.
+     * @return bool
+     */
+    public function is_source_allowed( $violated_directive, $origin ) {
+        $base = self::base_directive($violated_directive);
+
+        if ( ! $base || $origin === '') {
+            return false;
+        }
+
+        $directives = $this->get_directives();
+
+        if ( ! isset($directives[$base]) && isset($directives['default-src']) && $base !== 'default-src') {
+            $base = 'default-src';
+        }
+
+        if ( ! isset($directives[$base])) {
+            return false;
+        }
+
+        $sources = array_filter(explode(' ', strtolower($directives[$base])));
+        $host    = preg_replace('#^[a-z]+://#', '', strtolower($origin));
+
+        foreach ($sources as $source) {
+            if ($source === '*' || $source === strtolower($origin) || $source === $host) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Add a source to a directive and persist the policy.
      *
      * @param string $directive Base directive (must be a source directive).

@@ -3,7 +3,7 @@
  * Plugin Name: CSP Reporting Plugin
  * Plugin URI: https://github.com/markuspat2/csp-reporting-plugin
  * Description: Content Security Policy (CSP) headers with violation reporting, logging, and analysis for WordPress.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: Matchbox Design Group
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,7 +19,7 @@ if ( ! defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('CSP_REPORTING_VERSION', '2.0.0');
+define('CSP_REPORTING_VERSION', '2.1.0');
 define('CSP_REPORTING_PLUGIN_FILE', __FILE__);
 define('CSP_REPORTING_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CSP_REPORTING_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -146,6 +146,7 @@ class CSP_Reporting_Plugin {
             'log_retention_days' => 30,
             'log_max_size' => 10485760, // 10MB
             'file_logging_enabled' => false,
+            'store_client_ip' => false,
             'rate_limit_per_minute' => 30,
             'ignore_patterns' => CSP_Utils::default_ignore_patterns(),
             'enable_admin_notices' => true,

@@ -21,6 +21,43 @@ class CSP_Utils {
     }
 
     /**
+     * Normalize a URI for deduplication hashing.
+     *
+     * Query strings and fragments are dropped so cache-busters (?ver=) and
+     * per-request tokens (scanner tokens, session ids) don't split one
+     * violation pattern into many rows. Keyword pseudo-URIs (inline, eval,
+     * data, blob, ...) pass through lowercased.
+     *
+     * @param string $uri
+     * @return string
+     */
+    public static function normalize_uri_for_hash( $uri ) {
+        $uri = trim( (string) $uri);
+
+        if ($uri === '' || strpos($uri, '://') === false) {
+            return strtolower($uri);
+        }
+
+        $parts = wp_parse_url($uri);
+
+        if (empty($parts['scheme']) || empty($parts['host'])) {
+            return strtolower($uri);
+        }
+
+        $normalized = strtolower($parts['scheme']) . '://' . strtolower($parts['host']);
+
+        if ( ! empty($parts['port'])) {
+            $normalized .= ':' . (int) $parts['port'];
+        }
+
+        if ( ! empty($parts['path'])) {
+            $normalized .= $parts['path'];
+        }
+
+        return $normalized;
+    }
+
+    /**
      * Default ignore patterns for noise every site sees: browser extensions,
      * translation proxies, and inert about: pages.
      *

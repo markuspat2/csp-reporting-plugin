@@ -151,6 +151,14 @@ class CSP_Admin {
         );
 
         add_settings_field(
+            'store_client_ip',
+            __('Store Client IP Addresses', 'csp-reporting'),
+            array( $this, 'store_client_ip_callback' ),
+            'csp-reporting',
+            'csp_logging_section'
+        );
+
+        add_settings_field(
             'enable_admin_notices',
             __('Enable Admin Notices', 'csp-reporting'),
             array( $this, 'admin_notices_callback' ),
@@ -280,9 +288,18 @@ class CSP_Admin {
     }
 
     /**
-     * Render the violations list table screen.
+     * Render the violations screen: the per-page list table, or the
+     * "By Source" rollup when view=source.
      */
     private function render_violations_page() {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view routing.
+        $view = isset($_GET['view']) ? sanitize_key($_GET['view']) : 'all';
+
+        if ($view === 'source') {
+            $this->render_by_source_page();
+            return;
+        }
+
         require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-list-table.php';
 
         $list_table = new CSP_Violations_List_Table($this->database);
@@ -305,6 +322,72 @@ class CSP_Admin {
         $list_table->prepare_items();
 
         include CSP_REPORTING_PLUGIN_DIR . 'templates/violations-page.php';
+    }
+
+    /**
+     * Render the "By Source" rollup: one row per blocked origin + directive
+     * with an in-policy status and a bulk "Allow selected sources" action —
+     * the fast path from raw reports to a finished policy.
+     */
+    private function render_by_source_page() {
+        $policy = new CSP_Policy();
+
+        // Handle the bulk allow submission before rendering.
+        if ( ! empty($_POST['csp_allow_sources']) && ! empty($_POST['sources']) && is_array($_POST['sources'])) {
+            check_admin_referer('csp_bulk_allow');
+
+            if (current_user_can('manage_options')) {
+                $added = array();
+
+                foreach (wp_unslash($_POST['sources']) as $pair) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- validated below.
+                    $parts = explode('|', sanitize_text_field($pair), 2);
+                    if (count($parts) !== 2) {
+                        continue;
+                    }
+
+                    $directive = CSP_Policy::base_directive($parts[0]);
+                    $origin    = CSP_Policy::source_from_blocked_uri($parts[1]);
+
+                    if ($directive && $origin && $policy->add_source($directive, $origin)) {
+                        $added[] = $origin . ' → ' . $directive;
+                    }
+                }
+
+                if ( ! empty($added)) {
+                    add_settings_error(
+                        'csp_reporting',
+                        'sources_allowed',
+                        sprintf(
+                            /* translators: 1: count, 2: list of origin → directive pairs */
+                            _n('%1$d source added to the policy: %2$s', '%1$d sources added to the policy: %2$s', count($added), 'csp-reporting'),
+                            count($added),
+                            implode(', ', $added)
+                        ),
+                        'success'
+                    );
+                } else {
+                    add_settings_error(
+                        'csp_reporting',
+                        'sources_unchanged',
+                        __('No changes made — the selected sources are already allowed.', 'csp-reporting'),
+                        'info'
+                    );
+                }
+            }
+        }
+
+        $rows = $this->database->get_violations_by_source();
+
+        foreach ($rows as &$row) {
+            $row['allowed']  = $policy->is_source_allowed($row['directive'], $row['blocked_origin']);
+            $severity_map    = array( 1 => 'low', 2 => 'medium', 3 => 'high' );
+            $row['severity'] = isset($severity_map[ (int) $row['max_severity_rank']]) ? $severity_map[ (int) $row['max_severity_rank']] : 'low';
+        }
+        unset($row);
+
+        $sourceless_count = $this->database->count_sourceless_violations();
+
+        include CSP_REPORTING_PLUGIN_DIR . 'templates/violations-by-source.php';
     }
 
     /**
@@ -352,6 +435,7 @@ class CSP_Admin {
         $sanitized['log_max_size']            = intval($input['log_max_size']);
         $sanitized['file_logging_enabled']    = ! empty($input['file_logging_enabled']) ? 1 : 0;
         $sanitized['rate_limit_per_minute']   = isset($input['rate_limit_per_minute']) ? max(0, intval($input['rate_limit_per_minute'])) : CSP_Reporter::RATE_LIMIT_PER_MINUTE;
+        $sanitized['store_client_ip']         = ! empty($input['store_client_ip']) ? 1 : 0;
         $sanitized['enable_admin_notices']    = ! empty($input['enable_admin_notices']) ? 1 : 0;
         $sanitized['purge_logs_on_uninstall'] = ! empty($input['purge_logs_on_uninstall']) ? 1 : 0;
 
@@ -516,6 +600,12 @@ class CSP_Admin {
             <button type="button" class="button button-small csp-preset" data-preset="google-analytics"><?php esc_html_e('Google Analytics', 'csp-reporting'); ?></button>
             <button type="button" class="button button-small csp-preset" data-preset="gtm"><?php esc_html_e('Tag Manager', 'csp-reporting'); ?></button>
             <button type="button" class="button button-small csp-preset" data-preset="youtube"><?php esc_html_e('YouTube', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="recaptcha"><?php esc_html_e('reCAPTCHA', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="jetpack"><?php esc_html_e('Jetpack / WordPress.com', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="userway"><?php esc_html_e('UserWay', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="userback"><?php esc_html_e('Userback', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="cloudflare-insights"><?php esc_html_e('Cloudflare Insights', 'csp-reporting'); ?></button>
+            <button type="button" class="button button-small csp-preset" data-preset="jsdelivr"><?php esc_html_e('jsDelivr', 'csp-reporting'); ?></button>
         </p>
         <p class="description">
             <?php esc_html_e('The generated header preview updates as you type.', 'csp-reporting'); ?>
@@ -563,6 +653,13 @@ class CSP_Admin {
         $patterns = CSP_Utils::get_ignore_patterns();
         echo '<textarea name="csp_reporting_options[ignore_patterns]" rows="6" cols="60" class="large-text code">' . esc_textarea(implode("\n", $patterns)) . '</textarea>';
         echo '<p class="description">' . esc_html__('One pattern per line. Reports whose blocked URI or source file contains a pattern are dropped. Defaults cover browser-extension noise.', 'csp-reporting') . '</p>';
+    }
+
+    public function store_client_ip_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = ! empty($options['store_client_ip']) ? 1 : 0;
+        echo '<input type="checkbox" name="csp_reporting_options[store_client_ip]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . esc_html__('Record the reporting visitor\'s IP address with each violation. Off by default: IPs are personal data (GDPR) and are not needed for policy tuning. Rate limiting works either way.', 'csp-reporting') . '</p>';
     }
 
     public function csp_admin_pages_callback() {
@@ -1002,6 +1099,16 @@ class CSP_Admin {
         $rows     = $this->database->get_violations($args);
         $filename = 'csp-violations-' . current_time('Y-m-d') . '.' . $format;
 
+        // wpdb returns every column as a string; export numerics as numbers.
+        foreach ($rows as &$row) {
+            foreach (array( 'id', 'line_number', 'column_number', 'hit_count' ) as $int_column) {
+                if (isset($row[$int_column])) {
+                    $row[$int_column] = (int) $row[$int_column];
+                }
+            }
+        }
+        unset($row);
+
         nocache_headers();
         header('Content-Disposition: attachment; filename="' . $filename . '"');
 
@@ -1013,7 +1120,7 @@ class CSP_Admin {
 
         header('Content-Type: text/csv; charset=utf-8');
 
-        $columns = array( 'severity', 'directive', 'blocked_uri', 'document_uri', 'source_file', 'line_number', 'hit_count', 'first_seen', 'last_seen' );
+        $columns = array( 'severity', 'directive', 'blocked_origin', 'blocked_uri', 'document_uri', 'source_file', 'line_number', 'hit_count', 'first_seen', 'last_seen' );
 
         $output = fopen('php://output', 'w');
         fputcsv($output, $columns);

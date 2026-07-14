@@ -14,8 +14,11 @@ class CSP_Database {
 
     /**
      * Bump when the schema changes; compared against the stored option.
+     *
+     * v2: blocked_origin column; dedup hash computed on normalized URIs
+     * (query strings/fragments stripped) with existing duplicates merged.
      */
-    const DB_VERSION = '1';
+    const DB_VERSION = '2';
 
     const DB_VERSION_OPTION = 'csp_reporting_db_version';
     const MIGRATED_OPTION   = 'csp_reporting_logs_migrated';
@@ -46,6 +49,7 @@ class CSP_Database {
             report_hash CHAR(40) NOT NULL DEFAULT '',
             severity VARCHAR(10) NOT NULL DEFAULT 'low',
             directive VARCHAR(64) NOT NULL DEFAULT '',
+            blocked_origin VARCHAR(255) NOT NULL DEFAULT '',
             blocked_uri TEXT NULL,
             document_uri TEXT NULL,
             source_file TEXT NULL,
@@ -61,6 +65,7 @@ class CSP_Database {
             UNIQUE KEY report_hash (report_hash),
             KEY severity (severity),
             KEY directive (directive),
+            KEY blocked_origin (blocked_origin),
             KEY last_seen (last_seen)
         ) {$charset_collate};";
 
@@ -75,8 +80,14 @@ class CSP_Database {
      * @param CSP_Logger $logger Used to parse legacy log files.
      */
     public function maybe_upgrade( $logger ) {
-        if (get_option(self::DB_VERSION_OPTION) !== self::DB_VERSION) {
+        $installed_version = get_option(self::DB_VERSION_OPTION);
+
+        if ($installed_version !== self::DB_VERSION) {
             self::install();
+
+            if ($installed_version === '1') {
+                $this->upgrade_to_v2();
+            }
         }
 
         if ( ! get_option(self::MIGRATED_OPTION)) {
@@ -88,9 +99,9 @@ class CSP_Database {
     /**
      * Compute the deduplication hash for a violation.
      *
-     * Two reports of the same directive blocking the same URI on the same
-     * page are one violation pattern; they increment a counter instead of
-     * inserting a new row.
+     * Two reports of the same directive blocking the same URI (ignoring
+     * query strings and fragments) on the same page path are one violation
+     * pattern; they increment a counter instead of inserting a new row.
      *
      * @param string $directive
      * @param string $blocked_uri
@@ -98,7 +109,80 @@ class CSP_Database {
      * @return string
      */
     public static function report_hash( $directive, $blocked_uri, $document_uri ) {
-        return sha1($directive . '|' . $blocked_uri . '|' . $document_uri);
+        return sha1(
+            $directive . '|'
+            . CSP_Utils::normalize_uri_for_hash($blocked_uri) . '|'
+            . CSP_Utils::normalize_uri_for_hash($document_uri)
+        );
+    }
+
+    /**
+     * v1 → v2 data migration: recompute every row's hash on normalized URIs,
+     * backfill blocked_origin, and merge rows that now collide (sum
+     * hit_count, keep earliest first_seen / latest last_seen, keep the
+     * lowest id).
+     */
+    private function upgrade_to_v2() {
+        global $wpdb;
+
+        $table = self::table_name();
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $rows = $wpdb->get_results(
+            "SELECT id, directive, blocked_uri, document_uri, hit_count, first_seen, last_seen FROM {$table} ORDER BY id ASC",
+            ARRAY_A
+        );
+
+        $groups = array();
+
+        foreach ( (array) $rows as $row) {
+            $hash = self::report_hash($row['directive'], $row['blocked_uri'], $row['document_uri']);
+
+            if ( ! isset($groups[$hash])) {
+                $origin        = CSP_Policy::source_from_blocked_uri($row['blocked_uri']);
+                $groups[$hash] = array(
+                    'id' => (int) $row['id'],
+                    'blocked_origin' => $origin ? $origin : '',
+                    'hit_count' => (int) $row['hit_count'],
+                    'first_seen' => $row['first_seen'],
+                    'last_seen' => $row['last_seen'],
+                    'duplicate_ids' => array(),
+                );
+                continue;
+            }
+
+            $group                    = &$groups[$hash];
+            $group['hit_count']      += (int) $row['hit_count'];
+            $group['first_seen']      = min($group['first_seen'], $row['first_seen']);
+            $group['last_seen']       = max($group['last_seen'], $row['last_seen']);
+            $group['duplicate_ids'][] = (int) $row['id'];
+            unset($group);
+        }
+
+        // Delete duplicates first so hash updates can't hit the unique key.
+        $all_duplicate_ids = array();
+        foreach ($groups as $group) {
+            $all_duplicate_ids = array_merge($all_duplicate_ids, $group['duplicate_ids']);
+        }
+
+        if ( ! empty($all_duplicate_ids)) {
+            $this->delete_violations($all_duplicate_ids);
+        }
+
+        foreach ($groups as $hash => $group) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            $wpdb->update(
+                $table,
+                array(
+                    'report_hash' => $hash,
+                    'blocked_origin' => $group['blocked_origin'],
+                    'hit_count' => $group['hit_count'],
+                    'first_seen' => $group['first_seen'],
+                    'last_seen' => $group['last_seen'],
+                ),
+                array( 'id' => $group['id'] )
+            );
+        }
     }
 
     /**
@@ -140,13 +224,15 @@ class CSP_Database {
         $hash  = self::report_hash($violation['directive'], $violation['blocked_uri'], $violation['document_uri']);
         $table = self::table_name();
 
+        $origin = CSP_Policy::source_from_blocked_uri($violation['blocked_uri']);
+
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $result = $wpdb->query($wpdb->prepare(
             "INSERT INTO {$table}
-                (report_hash, severity, directive, blocked_uri, document_uri, source_file,
+                (report_hash, severity, directive, blocked_origin, blocked_uri, document_uri, source_file,
                  line_number, column_number, disposition, user_agent, client_ip,
                  hit_count, first_seen, last_seen)
-             VALUES (%s, %s, %s, %s, %s, %s, %d, %d, %s, %s, %s, 1, %s, %s)
+             VALUES (%s, %s, %s, %s, %s, %s, %s, %d, %d, %s, %s, %s, 1, %s, %s)
              ON DUPLICATE KEY UPDATE
                 hit_count = hit_count + 1,
                 last_seen = VALUES(last_seen),
@@ -155,6 +241,7 @@ class CSP_Database {
             $hash,
             $violation['severity'],
             substr($violation['directive'], 0, 64),
+            $origin ? substr($origin, 0, 255) : '',
             $violation['blocked_uri'],
             $violation['document_uri'],
             $violation['source_file'],
@@ -343,6 +430,49 @@ class CSP_Database {
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         return $wpdb->get_col('SELECT DISTINCT directive FROM ' . self::table_name() . ' ORDER BY directive');
+    }
+
+    /**
+     * Roll violations up by blocked origin + directive.
+     *
+     * Rows without a blocked origin (inline/eval/data violations) are
+     * excluded — they can't be fixed by allowing a source.
+     *
+     * @return array[] blocked_origin, directive, hits, pages, max_severity_rank, last_seen
+     */
+    public function get_violations_by_source() {
+        global $wpdb;
+
+        $table = self::table_name();
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        return (array) $wpdb->get_results(
+            "SELECT blocked_origin, directive,
+                    SUM(hit_count) AS hits,
+                    COUNT(DISTINCT document_uri) AS pages,
+                    MAX(FIELD(severity, 'low', 'medium', 'high')) AS max_severity_rank,
+                    MAX(last_seen) AS last_seen
+             FROM {$table}
+             WHERE blocked_origin != ''
+             GROUP BY blocked_origin, directive
+             ORDER BY hits DESC",
+            ARRAY_A
+        );
+    }
+
+    /**
+     * Count violation patterns that have no allowable origin (inline, eval,
+     * data: and similar) — these need a policy change, not a new source.
+     *
+     * @return int
+     */
+    public function count_sourceless_violations() {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        return (int) $wpdb->get_var(
+            'SELECT COUNT(*) FROM ' . self::table_name() . " WHERE blocked_origin = ''"
+        );
     }
 
     /**

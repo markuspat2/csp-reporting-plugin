@@ -327,7 +327,12 @@ class CSP_Reporter {
             'content_type' => isset($_SERVER['CONTENT_TYPE']) ? $_SERVER['CONTENT_TYPE'] : '',
         );
 
-        $enriched['client_ip'] = CSP_Utils::get_client_ip();
+        // IPs are personal data; only record them when explicitly enabled.
+        // Rate limiting still works either way — it hashes the IP into a
+        // transient key and never persists it.
+        $options = get_option('csp_reporting_options', array());
+
+        $enriched['client_ip'] = ! empty($options['store_client_ip']) ? CSP_Utils::get_client_ip() : '';
         $enriched['severity']  = $this->assess_violation_severity($report_data['csp-report']);
 
         return $enriched;
