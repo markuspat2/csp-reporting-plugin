@@ -82,6 +82,33 @@ class CSP_Policy_Test extends TestCase {
         $this->assertFalse(CSP_Policy::source_from_blocked_uri('javascript:alert(1)'));
     }
 
+    public function test_is_source_allowed_matches_origin_host_and_fallback() {
+        $GLOBALS['csp_test_options']['csp_reporting_options'] = array(
+            'csp_policy_directives' => array(
+                'default-src' => "'self' https://fallback.example.com",
+                'script-src' => "'self' https://cdn.example.com *.ignored.example",
+                'img-src' => 'images.example.com',
+            ),
+        );
+
+        $policy = new CSP_Policy();
+
+        // Exact origin on the base directive, via a granular directive name.
+        $this->assertTrue($policy->is_source_allowed('script-src-elem', 'https://cdn.example.com'));
+        $this->assertFalse($policy->is_source_allowed('script-src-elem', 'https://other.example.com'));
+
+        // Bare-host source expressions match the origin's host.
+        $this->assertTrue($policy->is_source_allowed('img-src', 'https://images.example.com'));
+
+        // Directive not set falls back to default-src.
+        $this->assertTrue($policy->is_source_allowed('connect-src', 'https://fallback.example.com'));
+        $this->assertFalse($policy->is_source_allowed('connect-src', 'https://cdn.example.com'));
+
+        // Unknown directives and empty origins are never allowed.
+        $this->assertFalse($policy->is_source_allowed('sandbox', 'https://cdn.example.com'));
+        $this->assertFalse($policy->is_source_allowed('script-src', ''));
+    }
+
     public function test_add_source_appends_and_deduplicates() {
         $GLOBALS['csp_test_options']['csp_reporting_options'] = array(
             'csp_policy_directives' => array('script-src' => "'self'"),

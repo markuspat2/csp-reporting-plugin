@@ -36,6 +36,11 @@
 
             // Allow blocked source from the violations table
             $(document).on('click', '.csp-allow-source', this.allowSource);
+
+            // Select all checkboxes on the By Source rollup
+            $(document).on('change', '#csp-select-all-sources', function() {
+                $('.csp-by-source-table input[name="sources[]"]').prop('checked', this.checked);
+            });
         },
 
         allowSource: function(e) {

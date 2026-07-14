@@ -385,3 +385,29 @@
     color: #0073aa;
     border: 1px solid #0073aa;
 }
+
+/* By Source rollup status badges */
+.csp-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.csp-status-allowed {
+    background-color: #edfaef;
+    color: #00a32a;
+    border: 1px solid #00a32a;
+}
+
+.csp-status-missing {
+    background-color: #fcf0f1;
+    color: #d63638;
+    border: 1px solid #d63638;
+}
+
+.csp-by-source-table .check-column {
+    width: 2.2em;
+    padding: 8px 0 8px 3px;
+}

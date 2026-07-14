@@ -288,9 +288,18 @@ class CSP_Admin {
     }
 
     /**
-     * Render the violations list table screen.
+     * Render the violations screen: the per-page list table, or the
+     * "By Source" rollup when view=source.
      */
     private function render_violations_page() {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view routing.
+        $view = isset($_GET['view']) ? sanitize_key($_GET['view']) : 'all';
+
+        if ($view === 'source') {
+            $this->render_by_source_page();
+            return;
+        }
+
         require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-list-table.php';
 
         $list_table = new CSP_Violations_List_Table($this->database);
@@ -313,6 +322,72 @@ class CSP_Admin {
         $list_table->prepare_items();
 
         include CSP_REPORTING_PLUGIN_DIR . 'templates/violations-page.php';
+    }
+
+    /**
+     * Render the "By Source" rollup: one row per blocked origin + directive
+     * with an in-policy status and a bulk "Allow selected sources" action —
+     * the fast path from raw reports to a finished policy.
+     */
+    private function render_by_source_page() {
+        $policy = new CSP_Policy();
+
+        // Handle the bulk allow submission before rendering.
+        if ( ! empty($_POST['csp_allow_sources']) && ! empty($_POST['sources']) && is_array($_POST['sources'])) {
+            check_admin_referer('csp_bulk_allow');
+
+            if (current_user_can('manage_options')) {
+                $added = array();
+
+                foreach (wp_unslash($_POST['sources']) as $pair) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- validated below.
+                    $parts = explode('|', sanitize_text_field($pair), 2);
+                    if (count($parts) !== 2) {
+                        continue;
+                    }
+
+                    $directive = CSP_Policy::base_directive($parts[0]);
+                    $origin    = CSP_Policy::source_from_blocked_uri($parts[1]);
+
+                    if ($directive && $origin && $policy->add_source($directive, $origin)) {
+                        $added[] = $origin . ' → ' . $directive;
+                    }
+                }
+
+                if ( ! empty($added)) {
+                    add_settings_error(
+                        'csp_reporting',
+                        'sources_allowed',
+                        sprintf(
+                            /* translators: 1: count, 2: list of origin → directive pairs */
+                            _n('%1$d source added to the policy: %2$s', '%1$d sources added to the policy: %2$s', count($added), 'csp-reporting'),
+                            count($added),
+                            implode(', ', $added)
+                        ),
+                        'success'
+                    );
+                } else {
+                    add_settings_error(
+                        'csp_reporting',
+                        'sources_unchanged',
+                        __('No changes made — the selected sources are already allowed.', 'csp-reporting'),
+                        'info'
+                    );
+                }
+            }
+        }
+
+        $rows = $this->database->get_violations_by_source();
+
+        foreach ($rows as &$row) {
+            $row['allowed']  = $policy->is_source_allowed($row['directive'], $row['blocked_origin']);
+            $severity_map    = array( 1 => 'low', 2 => 'medium', 3 => 'high' );
+            $row['severity'] = isset($severity_map[(int) $row['max_severity_rank']]) ? $severity_map[(int) $row['max_severity_rank']] : 'low';
+        }
+        unset($row);
+
+        $sourceless_count = $this->database->count_sourceless_violations();
+
+        include CSP_REPORTING_PLUGIN_DIR . 'templates/violations-by-source.php';
     }
 
     /**

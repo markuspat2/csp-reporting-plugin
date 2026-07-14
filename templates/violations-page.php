@@ -18,6 +18,13 @@ if ( ! defined('ABSPATH')) {
 
     <?php settings_errors('csp_reporting'); ?>
 
+    <?php $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violations'); ?>
+    <ul class="subsubsub">
+        <li><a href="<?php echo esc_url($csp_views_base); ?>" class="current"><?php esc_html_e('All Violations', 'csp-reporting'); ?></a> |</li>
+        <li><a href="<?php echo esc_url(add_query_arg('view', 'source', $csp_views_base)); ?>"><?php esc_html_e('By Source', 'csp-reporting'); ?></a></li>
+    </ul>
+    <div class="clear"></div>
+
     <?php
     $export_base = wp_nonce_url(admin_url('admin-post.php?action=csp_export_violations'), 'csp_export_violations');
     foreach ($list_table->get_filter_args() as $key => $value) {
