@@ -56,7 +56,7 @@ $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violatio
                     <th class="check-column">
                         <?php if ( ! $row['allowed']) : ?>
                         <input type="checkbox" name="sources[]"
-                               value="<?php echo esc_attr($row['directive'] . '|' . $row['blocked_origin']); ?>" />
+                                value="<?php echo esc_attr($row['directive'] . '|' . $row['blocked_origin']); ?>" />
                         <?php endif; ?>
                     </th>
                     <td><code><?php echo esc_html($row['blocked_origin']); ?></code></td>
@@ -73,8 +73,8 @@ $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violatio
                             <?php echo esc_html(ucfirst($row['severity'])); ?>
                         </span>
                     </td>
-                    <td><?php echo esc_html(number_format_i18n((int) $row['hits'])); ?></td>
-                    <td><?php echo esc_html(number_format_i18n((int) $row['pages'])); ?></td>
+                    <td><?php echo esc_html(number_format_i18n( (int) $row['hits'])); ?></td>
+                    <td><?php echo esc_html(number_format_i18n( (int) $row['pages'])); ?></td>
                     <td><?php echo esc_html(mysql2date(get_option('date_format') . ' ' . get_option('time_format'), $row['last_seen'])); ?></td>
                 </tr>
                 <?php endforeach; ?>

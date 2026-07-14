@@ -139,7 +139,7 @@ class CSP_Database {
             $hash = self::report_hash($row['directive'], $row['blocked_uri'], $row['document_uri']);
 
             if ( ! isset($groups[$hash])) {
-                $origin         = CSP_Policy::source_from_blocked_uri($row['blocked_uri']);
+                $origin        = CSP_Policy::source_from_blocked_uri($row['blocked_uri']);
                 $groups[$hash] = array(
                     'id' => (int) $row['id'],
                     'blocked_origin' => $origin ? $origin : '',
@@ -471,7 +471,7 @@ class CSP_Database {
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         return (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM " . self::table_name() . " WHERE blocked_origin = ''"
+            'SELECT COUNT(*) FROM ' . self::table_name() . " WHERE blocked_origin = ''"
         );
     }
 

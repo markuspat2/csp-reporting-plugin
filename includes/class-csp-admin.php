@@ -381,7 +381,7 @@ class CSP_Admin {
         foreach ($rows as &$row) {
             $row['allowed']  = $policy->is_source_allowed($row['directive'], $row['blocked_origin']);
             $severity_map    = array( 1 => 'low', 2 => 'medium', 3 => 'high' );
-            $row['severity'] = isset($severity_map[(int) $row['max_severity_rank']]) ? $severity_map[(int) $row['max_severity_rank']] : 'low';
+            $row['severity'] = isset($severity_map[ (int) $row['max_severity_rank']]) ? $severity_map[ (int) $row['max_severity_rank']] : 'low';
         }
         unset($row);
 

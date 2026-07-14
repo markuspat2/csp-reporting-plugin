@@ -32,7 +32,7 @@ class CSP_Utils {
      * @return string
      */
     public static function normalize_uri_for_hash( $uri ) {
-        $uri = trim((string) $uri);
+        $uri = trim( (string) $uri);
 
         if ($uri === '' || strpos($uri, '://') === false) {
             return strtolower($uri);
