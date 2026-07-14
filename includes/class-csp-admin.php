@@ -151,6 +151,14 @@ class CSP_Admin {
         );
 
         add_settings_field(
+            'store_client_ip',
+            __('Store Client IP Addresses', 'csp-reporting'),
+            array( $this, 'store_client_ip_callback' ),
+            'csp-reporting',
+            'csp_logging_section'
+        );
+
+        add_settings_field(
             'enable_admin_notices',
             __('Enable Admin Notices', 'csp-reporting'),
             array( $this, 'admin_notices_callback' ),
@@ -352,6 +360,7 @@ class CSP_Admin {
         $sanitized['log_max_size']            = intval($input['log_max_size']);
         $sanitized['file_logging_enabled']    = ! empty($input['file_logging_enabled']) ? 1 : 0;
         $sanitized['rate_limit_per_minute']   = isset($input['rate_limit_per_minute']) ? max(0, intval($input['rate_limit_per_minute'])) : CSP_Reporter::RATE_LIMIT_PER_MINUTE;
+        $sanitized['store_client_ip']         = ! empty($input['store_client_ip']) ? 1 : 0;
         $sanitized['enable_admin_notices']    = ! empty($input['enable_admin_notices']) ? 1 : 0;
         $sanitized['purge_logs_on_uninstall'] = ! empty($input['purge_logs_on_uninstall']) ? 1 : 0;
 
@@ -563,6 +572,13 @@ class CSP_Admin {
         $patterns = CSP_Utils::get_ignore_patterns();
         echo '<textarea name="csp_reporting_options[ignore_patterns]" rows="6" cols="60" class="large-text code">' . esc_textarea(implode("\n", $patterns)) . '</textarea>';
         echo '<p class="description">' . esc_html__('One pattern per line. Reports whose blocked URI or source file contains a pattern are dropped. Defaults cover browser-extension noise.', 'csp-reporting') . '</p>';
+    }
+
+    public function store_client_ip_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = ! empty($options['store_client_ip']) ? 1 : 0;
+        echo '<input type="checkbox" name="csp_reporting_options[store_client_ip]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . esc_html__('Record the reporting visitor\'s IP address with each violation. Off by default: IPs are personal data (GDPR) and are not needed for policy tuning. Rate limiting works either way.', 'csp-reporting') . '</p>';
     }
 
     public function csp_admin_pages_callback() {

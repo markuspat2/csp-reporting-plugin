@@ -146,6 +146,7 @@ class CSP_Reporting_Plugin {
             'log_retention_days' => 30,
             'log_max_size' => 10485760, // 10MB
             'file_logging_enabled' => false,
+            'store_client_ip' => false,
             'rate_limit_per_minute' => 30,
             'ignore_patterns' => CSP_Utils::default_ignore_patterns(),
             'enable_admin_notices' => true,
