@@ -38,7 +38,7 @@ if ( ! defined('ABSPATH')) {
                             <?php echo ! empty($options['csp_enabled']) ? esc_html__('Enabled', 'csp-reporting') : esc_html__('Disabled', 'csp-reporting'); ?>
                         </span>
                     </div>
-                    <div class="status-item">
+                    <div class="status-item status-item--stacked">
                         <span class="status-label"><?php esc_html_e('Endpoint URL:', 'csp-reporting'); ?></span>
                         <span class="status-value"><?php echo esc_url(CSP_Utils::get_report_endpoint_url()); ?></span>
                     </div>

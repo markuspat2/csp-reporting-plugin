@@ -112,7 +112,7 @@
             return;
         }
 
-        $(document).on('input change', '#csp-policy-builder input', updatePreview);
+        $(document).on('input change', '#csp-policy-builder input, #csp-policy-builder textarea', updatePreview);
         updatePreview();
 
         $(document).on('click', '.csp-preset', function(e) {
