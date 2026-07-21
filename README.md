@@ -5,6 +5,12 @@ analysis for WordPress. Built for agencies and teams managing CSPs across
 many sites: low-noise reporting, a structured policy editor, notifications,
 and WP-CLI automation.
 
+> **New to the plugin or to CSP?** Start with the user guides in
+> [`docs/`](docs/README.md): [Getting Started](docs/getting-started.md),
+> [Understanding CSP](docs/understanding-csp.md), and
+> [Crafting Your Policy](docs/crafting-your-policy.md). This README is the
+> developer/reference companion.
+
 ## Features
 
 - **Report-Only and Enforce modes** — start in Report-Only, tune the policy
