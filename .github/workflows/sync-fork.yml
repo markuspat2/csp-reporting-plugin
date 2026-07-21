@@ -1,0 +1,67 @@
+name: Sync fork on release
+
+# When a release is published here, push the released commit to the
+# matchboxdesigngroup fork and open a pull request into its main branch,
+# so the private fork can be reviewed and updated from source in one click.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Source ref to sync (branch, tag, or SHA). Defaults to the default branch.'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync-fork:
+    name: Push to fork and open PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source at the target ref
+        uses: actions/checkout@v4
+        with:
+          # Full history so the fork branch shares ancestry with the fork's main.
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Push release to fork and open a PR
+        env:
+          # Fine-grained PAT with Contents + Pull requests: read/write on the fork.
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          FORK: matchboxdesigngroup/csp-reporting-plugin
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::FORK_SYNC_TOKEN secret is not set. Add a PAT with Contents + Pull requests (read/write) on ${FORK} as the FORK_SYNC_TOKEN repository secret."
+            exit 1
+          fi
+
+          # Human-readable label for the sync branch and PR title.
+          LABEL="${GITHUB_REF_NAME:-manual}"
+          BRANCH="sync/upstream-${LABEL}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Authenticate git operations against the private fork with the PAT.
+          git remote add fork "https://x-access-token:${GH_TOKEN}@github.com/${FORK}.git"
+
+          # Push this exact source commit onto a branch in the fork.
+          git push --force fork "HEAD:refs/heads/${BRANCH}"
+
+          # Open a PR fork:main <- fork:BRANCH. If one is already open for this
+          # branch, the push above has already updated it, so just report that.
+          TITLE="Sync fork with source ${LABEL}"
+          BODY="Automated sync from \`${GITHUB_REPOSITORY}\` (\`${LABEL}\`). Brings the fork's \`main\` up to date with the source release. Review CI on this PR before merging."
+
+          if gh pr create --repo "${FORK}" --base main --head "${BRANCH}" \
+               --title "${TITLE}" --body "${BODY}"; then
+            echo "Opened sync PR on ${FORK}."
+          else
+            echo "No new PR created (one is likely already open); branch ${BRANCH} was updated."
+            gh pr list --repo "${FORK}" --head "${BRANCH}" --base main --state open || true
+          fi
