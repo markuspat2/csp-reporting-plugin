@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 2.1.0). Leave blank to use the plugin header version.'
+        required: false
 
 permissions:
   contents: write
@@ -18,13 +23,23 @@ jobs:
 
       - name: Determine version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            if [ -z "$VERSION" ]; then
+              VERSION="$(grep -oP '^\s*\*\s*Version:\s*\K[0-9.]+' csp-reporting-plugin.php)"
+            fi
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Releasing version ${VERSION}"
 
-      - name: Verify tag matches plugin version
+      - name: Verify version matches plugin header
         run: |
           HEADER_VERSION="$(grep -oP '^\s*\*\s*Version:\s*\K[0-9.]+' csp-reporting-plugin.php)"
           if [ "$HEADER_VERSION" != "${{ steps.version.outputs.version }}" ]; then
-            echo "Tag v${{ steps.version.outputs.version }} does not match plugin header version $HEADER_VERSION" >&2
+            echo "Release version ${{ steps.version.outputs.version }} does not match plugin header version $HEADER_VERSION" >&2
             exit 1
           fi
 
@@ -66,7 +81,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
-            --notes-file release-notes.md \
-            "csp-reporting-plugin-${{ steps.version.outputs.version }}.zip"
+          TAG="v${{ steps.version.outputs.version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading asset." >&2
+            gh release upload "$TAG" "csp-reporting-plugin-${{ steps.version.outputs.version }}.zip" --clobber
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --target "${GITHUB_SHA}" \
+              --notes-file release-notes.md \
+              "csp-reporting-plugin-${{ steps.version.outputs.version }}.zip"
+          fi
