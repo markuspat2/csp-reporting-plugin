@@ -183,3 +183,48 @@ actually see and tune violations. This is exactly the workflow we already own.
 **Net:** adopt their breadth and zero-config baseline as table stakes; keep our
 first-party reporting/tuning as the headline differentiator and extend it to
 COOP/COEP reports, which even they only pass through.
+
+## 9. Competitor pricing & monetization
+
+Pricing is hardcoded in the plugin's own "Shield" tab and checks out through
+**Lemon Squeezy** (the `openheaders.org/pro` marketing page currently 404s, and
+the site is unmaintained/spam-filled). Shield is brand-new — introduced in
+v5.3.3 — so their paid motion is early and rough.
+
+| Tier | Price | Scope |
+|---|---|---|
+| Free | $0 | The entire plugin — all security headers, forever |
+| Shield | $29/yr (~$2.41/mo) | Per site |
+| Unlimited | $99/yr (~$8.25/mo) | Unlimited sites ("4+ sites you save") |
+
+Checkout: `https://open-headers.lemonsqueezy.com/checkout/buy/02981b50-7291-4551-bb9c-79f0f2c3e568`
+
+**What Shield sells** (per the v5.3.3 changelog): Security Score dashboard
+(A+→F), Security Advisor, **CSP violation analytics** (top blocked domains,
+directives, trends), email alerts, webhooks (Slack/Discord/Teams/custom JSON),
+Export/Import settings for multi-site, and weekly automated scans with history.
+
+**Two takeaways for our version-jump / rebrand decision**
+
+1. **Their paid moat is what we already give away.** CSP violation analytics,
+   alerts, webhooks, and multi-site export are Shield's headline *paid*
+   features — and we already ship all of them first-party and free, with a
+   deeper implementation (real violation store + dedup + By Source + one-click
+   allow, not just "top domains" charts). Their free tier cannot even display a
+   violation without an external SaaS.
+2. **Their monetization is early, cheap, and aimed at our segment.** Shield only
+   landed in v5.3.3, the storefront is broken, and the source is not on their
+   public GitHub. The $29/site / $99-unlimited anchor is low, and the $99
+   "Unlimited" tier explicitly targets agencies — the exact audience our README
+   already courts.
+
+**Monetization options this opens for us** (decision, not a recommendation yet):
+- **Stay fully free / open** to win on trust and depth, and monetize via
+  services (agency support, managed policies) rather than a license.
+- **Freemium with a Pro/agency layer** that leads with the reporting depth they
+  charge for — e.g. cross-site fleet dashboards, hosted report aggregation,
+  managed policy presets, SLA support — priced at or above their $99 agency
+  tier since our free core is already stronger.
+- Either way, a clear "free forever" core is competitively important here: it
+  is their loudest promise, and undercutting it costs little because our depth,
+  not our header list, is the draw.
