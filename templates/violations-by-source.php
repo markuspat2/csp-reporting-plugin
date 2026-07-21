@@ -15,7 +15,7 @@ if ( ! defined('ABSPATH')) {
 $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violations');
 ?>
 
-<div class="wrap csp-admin-page">
+<div class="wrap csp-admin-page csp-full-width">
     <h1><?php esc_html_e('CSP Violations', 'csp-reporting'); ?></h1>
 
     <?php $this->render_tabs('violations'); ?>

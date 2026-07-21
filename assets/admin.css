@@ -77,12 +77,21 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 10px;
     padding: 5px 0;
     border-bottom: 1px solid #f0f0f1;
 }
 
 .status-item:last-child {
     border-bottom: none;
+}
+
+/* Stacked variant for long values (e.g. the endpoint URL) so the value
+   wraps full-width instead of overflowing the widget. */
+.status-item--stacked {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
 }
 
 .status-label {
@@ -95,6 +104,9 @@
     color: #23282d;
     font-family: monospace;
     font-size: 12px;
+    min-width: 0;
+    word-break: break-all;
+    overflow-wrap: anywhere;
 }
 
 .csp-log-files {
@@ -255,6 +267,36 @@
 .csp-admin-page .large-text {
     width: 100%;
     max-width: 600px;
+}
+
+/* Violations screens use the full admin width; the settings screen keeps
+   its capped two-column layout. */
+.csp-admin-page.csp-full-width {
+    max-width: none;
+}
+
+/* Policy builder: wrapping textareas so long source lists stay fully
+   visible instead of truncating in a single-line field. */
+.csp-policy-builder td {
+    vertical-align: top;
+}
+
+.csp-policy-builder td code {
+    display: inline-block;
+    padding-top: 8px;
+}
+
+.csp-policy-builder textarea.csp-directive-input {
+    width: 100%;
+    max-width: none;
+    min-height: 40px;
+    margin: 0;
+    resize: vertical;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .csp-admin-page .description {

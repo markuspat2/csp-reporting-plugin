@@ -571,11 +571,11 @@ class CSP_Admin {
                 <tr>
                     <td><code><?php echo esc_html($directive); ?></code></td>
                     <td>
-                        <input type="text"
-                                class="large-text code csp-directive-input"
+                        <textarea
+                                class="code csp-directive-input"
+                                rows="2"
                                 data-directive="<?php echo esc_attr($directive); ?>"
-                                name="csp_reporting_options[csp_policy_directives][<?php echo esc_attr($directive); ?>]"
-                                value="<?php echo esc_attr(isset($directives[$directive]) ? $directives[$directive] : ''); ?>" />
+                                name="csp_reporting_options[csp_policy_directives][<?php echo esc_attr($directive); ?>]"><?php echo esc_textarea(isset($directives[$directive]) ? $directives[$directive] : ''); ?></textarea>
                     </td>
                 </tr>
                 <?php endforeach; ?>
