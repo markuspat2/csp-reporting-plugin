@@ -3,7 +3,7 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.1.0] - 2026-07-14
+## [2.1.0] - 2026-07-21
 
 Tuning pass driven by the first live deployment.
 
@@ -29,6 +29,12 @@ Tuning pass driven by the first live deployment.
   Userback, Cloudflare Insights, and jsDelivr.
 - JSON export now includes `blocked_origin` and emits numeric fields as
   numbers instead of strings.
+
+### Admin UI
+- Policy directive sources are now wrapping textareas, so long values are
+  fully visible instead of truncating in a single-line field.
+- The Plugin Status endpoint URL wraps inside its box instead of overflowing.
+- The All Violations and By Source tables use the full admin width.
 
 ## [2.0.0] - 2026-07-12
 

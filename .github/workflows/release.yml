@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag matches plugin version
+        run: |
+          HEADER_VERSION="$(grep -oP '^\s*\*\s*Version:\s*\K[0-9.]+' csp-reporting-plugin.php)"
+          if [ "$HEADER_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "Tag v${{ steps.version.outputs.version }} does not match plugin header version $HEADER_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Build installable plugin zip
+        run: |
+          SLUG=csp-reporting-plugin
+          DEST="build/${SLUG}"
+          mkdir -p "$DEST"
+          rsync -a \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'build' \
+            --exclude 'tests' \
+            --exclude 'vendor' \
+            --exclude 'node_modules' \
+            --exclude 'composer.json' \
+            --exclude 'composer.lock' \
+            --exclude 'phpcs.xml.dist' \
+            --exclude 'phpunit.xml.dist' \
+            --exclude '.gitignore' \
+            --exclude '.gitattributes' \
+            --exclude '.distignore' \
+            ./ "$DEST/"
+          ( cd build && zip -rq "../${SLUG}-${{ steps.version.outputs.version }}.zip" "$SLUG" )
+          echo "Built ${SLUG}-${{ steps.version.outputs.version }}.zip"
+
+      - name: Extract changelog notes for this version
+        run: |
+          awk -v ver="${{ steps.version.outputs.version }}" '
+            $0 ~ "^## \\[" ver "\\]" { flag = 1; next }
+            /^## \[/ { flag = 0 }
+            flag { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "See CHANGELOG.md for details." > release-notes.md
+          fi
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            "csp-reporting-plugin-${{ steps.version.outputs.version }}.zip"
