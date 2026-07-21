@@ -7,11 +7,14 @@ commitment to scope or dates.
 
 ## 1. Context
 
-Today the plugin is a **CSP specialist** and — as far as we can tell from the
-WordPress.org directory — one of very few that does CSP *well* (Report-Only
-tuning, violation reporting, source rollups). Competing "security headers"
-plugins cover many headers but treat each as a static, set-and-forget string
-with no reporting or tuning loop.
+Today the plugin is a **CSP specialist** that does the hard part — a
+first-party report→store→tune→enforce loop (Report-Only tuning, a violation
+store, source rollups, one-click allow). The breadth leader in this category,
+*Headers Security Advanced & HSTS WP* (100,000+ installs), covers many headers
+but treats each as a static, set-and-forget string and **outsources CSP
+reporting to third-party SaaS** — it stores nothing itself (see the teardown in
+section 8). So the market is validated and crowded on breadth, but the
+reporting/tuning depth is wide open.
 
 The goal of this roadmap is to expand coverage to **all common HTTP security
 response headers** (matching the breadth of plugins like *Headers Security
@@ -56,15 +59,24 @@ competitors do not have.
 
 ## 4. Competitive positioning
 
-- **They win on breadth, we win on depth.** Adding the static headers above is
-  low engineering effort — most are a label, a value, and a toggle.
-- **Our reporting infrastructure is reusable and rare.** The Reporting API
-  (`Reporting-Endpoints`) we already emit for CSP can also carry **COOP/COEP,
-  Deprecation, and Intervention reports**. Extending the violations pipeline to
-  ingest those gives us a "reporting + tuning" story across multiple headers
-  that essentially no competitor has.
-- **Strategy:** reach breadth parity quickly, but build and market around the
-  reporting/tuning depth so we are not "just another headers plugin."
+- **They win on breadth + distribution, we win on depth.** The incumbent has
+  100,000+ installs, 10+ translations, and "automatic best-practice" defaults.
+  Breadth alone will not differentiate us — we would be a late entrant on the
+  one axis they already dominate.
+- **Their reporting is a pass-through; ours is first-party.** They append a
+  `report-uri` pointing at Sentry / Report URI / URIports / Datadog and store
+  nothing; first-party violation analytics sits behind their paid "Shield"
+  tier. We already own the collection, dedup, rollup, and tuning loop with **no
+  external subscription** — this is the durable wedge.
+- **Our reporting infrastructure extends to other headers.** The Reporting API
+  (`Reporting-Endpoints`) we emit for CSP can also carry **COOP/COEP,
+  Deprecation, and Intervention reports**. Ingesting those first-party gives us
+  a "reporting + tuning" story across multiple headers that even the breadth
+  leader only offers as a pass-through.
+- **Strategy:** reach breadth parity so we are a credible "all headers" choice
+  (table stakes), but lead the product and messaging with first-party CSP
+  reporting/tuning — "no Sentry or Report URI subscription required" — plus a
+  one-click "recommended baseline" to match their zero-config UX.
 
 ## 5. Proposed architecture
 
@@ -117,12 +129,57 @@ testable.
    rebrand are the real work. Suggested cut: ship Phases 1–2 as a point
    release, then Phase 3 as the flagship `3.0`.
 
-## 8. Open competitive-analysis item
+## 8. Competitor teardown: Headers Security Advanced & HSTS WP (v5.3.3)
 
-A line-by-line review of *Headers Security Advanced & HSTS WP* is still
-pending: the source could not be fetched from the current environment
-(the session's egress policy blocks `wordpress.org` / `plugins.trac.wordpress.org`).
-To close this, either mirror that plugin into a repo we can read, provide its
-`.zip`/readme, or run the review from an environment whose network policy
-allows wordpress.org. The header set in section 3 reflects the category
-standard, which should be verified against their exact current feature list.
+Based on a review of the plugin source (v5.3.3, by OpenHeaders / irn3).
+
+**Distribution & model**
+- 100,000+ active installs; 10+ bundled translations. The category's breadth
+  and distribution leader.
+- Freemium: every security header is free "forever"; a new **Shield** tier
+  (openheaders.org/pro) adds a monitoring dashboard, a security score/scanner,
+  a CSP advisor, alerts, and **CSP violation analytics** (options seen on
+  uninstall: `hsts_pro_security_score`, `hsts_pro_scan_history`,
+  `hsts_pro_csp_violations`).
+
+**How it works**
+- Emits headers via the `wp_headers` filter (works on any server), and
+  additionally writes HSTS/CSP into **`.htaccess`** on Apache
+  (`insert_with_markers`-style block, rewritten on option change and on
+  plugin upgrade).
+- "Automatic best practices": hardcoded sensible defaults with mostly on/off
+  `disable_*` toggles. Example built-in Permissions-Policy is a full
+  feature-by-feature default string; default CSP is minimal
+  (`upgrade-insecure-requests;`).
+
+**Header coverage** (superset of our section 3): CORS
+(`Access-Control-Allow-Origin/Methods/Headers`), CSP + legacy
+`X-Content-Security-Policy`, COEP/COOP/CORP incl. `-Report-Only`,
+Permissions-Policy, Referrer-Policy, HSTS, X-Content-Type-Options,
+X-Frame-Options, X-Permitted-Cross-Domain-Policies, `X-Powered-By` removal,
+Clear-Site-Data, FLoC opt-out, and deprecated Expect-CT / HPKP / Pragma /
+X-XSS-Protection.
+
+**The decisive gap — CSP reporting is pass-through only.** The `report-uri`
+setting (`hsts_csp_report_uri`) simply appends `report-uri`/`report-to`
+pointing at an **external service** (Sentry, Report URI, URIports, Datadog).
+There is **no first-party REST endpoint, no violations table, no dedup, no "By
+Source" rollup, no one-click allow, and no structured directive builder**.
+Free-tier users must buy a third-party SaaS subscription (or Shield) to
+actually see and tune violations. This is exactly the workflow we already own.
+
+**Weaknesses worth exploiting**
+- CSP is a near-static default string; there is no data-driven tuning loop.
+- Some questionable always-on defaults (e.g. CORS `Access-Control-Allow-*`
+  emitted on every response; COEP/COOP `report-to='default'` referencing a
+  reporting group that is not necessarily defined).
+- `.htaccess` rewriting is fragile across hosts/servers.
+- No first-party analytics without paying or wiring up external SaaS.
+
+**What they do better than us today**
+- Breadth of headers, zero-config "recommended" defaults, `.htaccess` option
+  for server-level enforcement, and heavy internationalization.
+
+**Net:** adopt their breadth and zero-config baseline as table stakes; keep our
+first-party reporting/tuning as the headline differentiator and extend it to
+COOP/COEP reports, which even they only pass through.
