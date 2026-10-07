@@ -16,6 +16,8 @@ $csp_purge_logs = ! empty($csp_options['purge_logs_on_uninstall']);
 delete_option('csp_reporting_options');
 delete_option('csp_admin_notifications');
 delete_option('csp_reporting_rewrite_version'); // Legacy 1.x marker.
+delete_option('csp_reporting_db_version');
+delete_option('csp_reporting_logs_migrated');
 
 wp_clear_scheduled_hook('csp_cleanup_logs');
 
