@@ -27,6 +27,8 @@ define('CSP_REPORTING_LOG_DIR', WP_CONTENT_DIR . '/csp-reports/');
 
 // Include required files
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-utils.php';
+require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-nonce.php';
+require_once CSP_REPORTING_PLUGIN_DIR . 'includes/csp-template-functions.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-policy.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-database.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-logger.php';
