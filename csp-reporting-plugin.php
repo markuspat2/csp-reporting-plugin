@@ -121,6 +121,11 @@ class CSP_Reporting_Plugin {
         add_action('send_headers', array( $this, 'send_csp_headers' ));
         add_action('admin_init', array( $this, 'maybe_send_admin_csp_headers' ), 1);
 
+        // Nonce mode is front-end only; wp-admin is never stamped.
+        if ( ! is_admin()) {
+            $this->maybe_register_nonce_stamping();
+        }
+
         // Scheduled log cleanup.
         add_action('csp_cleanup_logs', array( $this, 'cleanup_old_logs' ));
     }
@@ -206,6 +211,29 @@ class CSP_Reporting_Plugin {
      */
     public function send_csp_headers() {
         $this->output_csp_header(true);
+    }
+
+    /**
+     * Stamp the request's nonce onto every script WordPress prints when a
+     * header sent on this request carries the nonce.
+     *
+     * Since WordPress 6.4 (the minimum for nonce mode) every WP_Scripts tag
+     * — enqueued src, inline before/after, wp_localize_script data,
+     * translations — and script modules / the import map go through these
+     * two filters. Scripts printed any other way (hard-coded in templates,
+     * echoed by plugins) are deliberately not stamped: blanket output
+     * stamping would bless injected scripts too. Those show up as
+     * violations instead, and are fixed with csp_nonce_attr().
+     */
+    public function maybe_register_nonce_stamping() {
+        $policy = new CSP_Policy();
+
+        if ( ! $policy->is_nonce_active()) {
+            return;
+        }
+
+        add_filter('wp_script_attributes', array( 'CSP_Nonce', 'add_to_attributes' ));
+        add_filter('wp_inline_script_attributes', array( 'CSP_Nonce', 'add_to_attributes' ));
     }
 
     /**
