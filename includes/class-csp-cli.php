@@ -35,7 +35,17 @@ class CSP_CLI {
     }
 
     /**
-     * Show plugin status: mode, endpoint, and 7-day violation stats.
+     * Nonce-related settings: CLI name => option key.
+     */
+    const NONCE_SETTINGS = array(
+        'enforce' => 'csp_nonce_enforce',
+        'report-only' => 'csp_nonce_report_only',
+        'strict-dynamic' => 'csp_strict_dynamic',
+        'report-sample' => 'csp_report_sample',
+    );
+
+    /**
+     * Show plugin status: mode, endpoint, nonce mode, and 7-day violation stats.
      *
      * ## EXAMPLES
      *
@@ -52,6 +62,10 @@ class CSP_CLI {
             array( 'field' => 'enabled', 'value' => ! empty($options['csp_enabled']) ? 'yes' : 'no' ),
             array( 'field' => 'mode', 'value' => $policy->get_mode() ),
             array( 'field' => 'endpoint', 'value' => CSP_Utils::get_report_endpoint_url() ),
+            array( 'field' => 'nonce_enforce', 'value' => $this->nonce_setting_status('enforce', $options) ),
+            array( 'field' => 'nonce_report_only', 'value' => $this->nonce_setting_status('report-only', $options) ),
+            array( 'field' => 'strict_dynamic', 'value' => $this->nonce_setting_status('strict-dynamic', $options) ),
+            array( 'field' => 'report_sample', 'value' => $this->nonce_setting_status('report-sample', $options) ),
             array( 'field' => 'reports_7d', 'value' => $stats['total_hits'] ),
             array( 'field' => 'patterns_7d', 'value' => $stats['unique_patterns'] ),
             array( 'field' => 'high_7d', 'value' => $stats['by_severity']['high'] ),
@@ -139,6 +153,111 @@ class CSP_CLI {
     }
 
     /**
+     * Describe one nonce-related setting for status output.
+     *
+     * @param string $setting Key of NONCE_SETTINGS.
+     * @param array $options
+     * @return string
+     */
+    private function nonce_setting_status( $setting, $options ) {
+        if ($setting !== 'report-sample' && ! CSP_Nonce::is_supported()) {
+            return sprintf('unavailable (requires WordPress %s+)', CSP_Nonce::MIN_WP_VERSION);
+        }
+
+        $on = ! empty($options[self::NONCE_SETTINGS[$setting]]);
+
+        if ($on && in_array($setting, array( 'enforce', 'report-only' ), true)) {
+            $policy = new CSP_Policy();
+            if ( ! in_array($setting, $policy->get_header_contexts(), true)) {
+                return sprintf('on (no effect: mode %s sends no %s header)', $policy->get_mode(), $setting);
+            }
+        }
+
+        return $on ? 'on' : 'off';
+    }
+
+    /**
+     * Get or set nonce mode and related script-src options.
+     *
+     * Nonce mode is front-end only and requires WordPress 6.4 or newer.
+     *
+     * ## OPTIONS
+     *
+     * <action>
+     * : get or set.
+     *
+     * [<setting>]
+     * : For set: enforce (nonce on the Content-Security-Policy header),
+     *   report-only (nonce on the Report-Only header — the test policy in
+     *   Enforce + Test, or the main policy in Report-Only), strict-dynamic,
+     *   or report-sample.
+     *
+     * [<value>]
+     * : For set: on or off.
+     *
+     * [--format=<format>]
+     * : Output format for get: table, json, csv, yaml. Default table.
+     *
+     * ## EXAMPLES
+     *
+     *     wp csp nonce get
+     *     wp csp nonce set report-only on
+     *     wp csp nonce set strict-dynamic on
+     *     wp csp nonce set report-sample on
+     *     wp csp nonce set enforce off
+     *
+     * @subcommand nonce
+     */
+    public function nonce( $args, $assoc_args ) {
+        $action  = isset($args[0]) ? $args[0] : 'get';
+        $options = get_option('csp_reporting_options', array());
+
+        if ($action === 'get') {
+            $rows = array();
+            foreach (array_keys(self::NONCE_SETTINGS) as $setting) {
+                $rows[] = array( 'setting' => $setting, 'value' => $this->nonce_setting_status($setting, $options) );
+            }
+
+            $format = isset($assoc_args['format']) ? $assoc_args['format'] : 'table';
+            WP_CLI\Utils\format_items($format, $rows, array( 'setting', 'value' ));
+            return;
+        }
+
+        if ($action === 'set') {
+            if ( ! isset($args[1], $args[2])) {
+                WP_CLI::error('Usage: wp csp nonce set <enforce|report-only|strict-dynamic|report-sample> <on|off>');
+            }
+
+            $setting = strtolower($args[1]);
+            $value   = strtolower($args[2]);
+
+            if ( ! isset(self::NONCE_SETTINGS[$setting])) {
+                WP_CLI::error(sprintf('Unknown setting %s. Valid: %s', $setting, implode(', ', array_keys(self::NONCE_SETTINGS))));
+            }
+
+            if ( ! in_array($value, array( 'on', 'off' ), true)) {
+                WP_CLI::error('Value must be on or off.');
+            }
+
+            if ($setting !== 'report-sample' && ! CSP_Nonce::is_supported()) {
+                WP_CLI::error(sprintf('Nonce mode requires WordPress %s or newer.', CSP_Nonce::MIN_WP_VERSION));
+            }
+
+            $options[self::NONCE_SETTINGS[$setting]] = $value === 'on' ? 1 : 0;
+            update_option('csp_reporting_options', $options);
+
+            if ($setting === 'enforce' && $value === 'on') {
+                WP_CLI::warning('The enforced policy now blocks every inline script without the nonce. Make sure the report-only test is quiet first.');
+            }
+
+            WP_CLI::success(sprintf('%s: %s', $setting, $this->nonce_setting_status($setting, $options)));
+            return;
+        }
+
+        WP_CLI::error("Unknown action '{$action}'. Use get or set.");
+    }
+
+    /**
      * List or clear recorded violations.
      *
      * ## OPTIONS
@@ -190,7 +309,7 @@ class CSP_CLI {
             WP_CLI\Utils\format_items(
                 $format,
                 $rows,
-                array( 'id', 'severity', 'directive', 'blocked_uri', 'document_uri', 'hit_count', 'last_seen' )
+                array( 'id', 'severity', 'directive', 'blocked_uri', 'script_sample', 'document_uri', 'hit_count', 'last_seen' )
             );
             return;
         }
