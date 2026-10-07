@@ -145,6 +145,10 @@ class CSP_Reporting_Plugin {
             'csp_mode' => CSP_Policy::MODE_REPORT_ONLY,
             'csp_test_policy' => '',
             'csp_admin_pages' => false,
+            'csp_nonce_enforce' => false,
+            'csp_nonce_report_only' => false,
+            'csp_strict_dynamic' => false,
+            'csp_report_sample' => false,
             'log_retention_days' => 30,
             'log_max_size' => 10485760, // 10MB
             'file_logging_enabled' => false,
@@ -201,11 +205,14 @@ class CSP_Reporting_Plugin {
      * (used in 1.x) fires mid-document, when header() is already a no-op.
      */
     public function send_csp_headers() {
-        $this->output_csp_header();
+        $this->output_csp_header(true);
     }
 
     /**
      * Send CSP headers on admin pages when enabled.
+     *
+     * Nonce mode is front-end only: admin headers never carry a nonce, and
+     * admin scripts are never stamped.
      */
     public function maybe_send_admin_csp_headers() {
         $options = get_option('csp_reporting_options', array());
@@ -214,14 +221,16 @@ class CSP_Reporting_Plugin {
             return;
         }
 
-        $this->output_csp_header();
+        $this->output_csp_header(false);
     }
 
     /**
      * Build and send the CSP header(s) for the configured mode
      * (report-only, enforce, or both).
+     *
+     * @param bool $allow_nonce Whether nonce mode may apply to this request.
      */
-    private function output_csp_header() {
+    private function output_csp_header( $allow_nonce ) {
         if (headers_sent()) {
             return;
         }
@@ -233,7 +242,7 @@ class CSP_Reporting_Plugin {
         }
 
         $policy  = new CSP_Policy();
-        $headers = $policy->get_headers(CSP_Utils::get_report_endpoint_url());
+        $headers = $policy->get_headers(CSP_Utils::get_report_endpoint_url(), $allow_nonce);
 
         foreach ($headers as $name => $value) {
             header($name . ': ' . $value);
