@@ -3,6 +3,60 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] - Unreleased
+
+Nonce mode: move `script-src` off `'unsafe-inline'` and host allowlists to
+`'nonce-…' 'strict-dynamic'`, using Enforce + Test to inventory every inline
+script that still needs work first.
+
+### Added
+- **Nonce mode for `script-src`** (requires WordPress 6.4+, front end only).
+  It is set separately for the enforced header and the report-only header,
+  so it can run on the Enforce + Test test policy alone. A per-request nonce
+  is added to that header's `script-src`. If there is no `script-src`, one
+  is created from a copy of `default-src`. Optionally `'strict-dynamic'` is
+  added too. Existing `'unsafe-inline'` and host sources are kept as the
+  fallback for older browsers.
+- Every script WordPress prints gets the nonce through
+  `wp_script_attributes` / `wp_inline_script_attributes`. That covers
+  enqueued scripts, inline before/after scripts, `wp_localize_script` data,
+  translations, script modules, and the import map. Nothing is stamped in
+  wp-admin, and nothing is stamped by output buffering.
+- Template helpers `csp_nonce()` and `csp_nonce_attr()` for hard-coded
+  `<script>` tags, and a `csp_reporting_nonce` filter to override the value
+  (e.g. an edge placeholder).
+- **Report Samples** setting: adds `'report-sample'` to `script-src` on every
+  header sent. Code samples from both report formats (`script-sample` and
+  Reporting API `sample`) are stored, capped at 255 characters, shown in the
+  Violations list, searchable, and included in CSV/JSON exports.
+- Inline violations are labelled as inline script blocks (fixable with a
+  nonce), inline event handlers (need a code change), or eval. The label is
+  in the list, and exports carry it as an `inline_type` column.
+- `wp csp nonce get|set` and nonce rows in `wp csp status`. Nonce mode in
+  the sidebar status.
+- The live header preview shows each header the mode sends, including
+  `'nonce-{generated per request}'`.
+
+### Changed
+- Distinct inline scripts on one page are now separate violation rows. The
+  dedup hash for inline/eval violations includes the source file and code
+  sample (or line number when there is no sample). URL-based hashes are
+  unchanged.
+- The test policy and the enforced policy are built by one code path, so
+  the test policy is now normalized the same way.
+- The database schema check runs on every request (one option read), so
+  reports that arrive before an admin page loads after an update are not
+  lost.
+
+### Database
+- Schema version 3 adds a nullable `script_sample` column. Existing rows are
+  not rewritten. Old per-page inline aggregate rows age out through
+  retention.
+
+### Fixed
+- Uninstall now also removes the `csp_reporting_db_version` and
+  `csp_reporting_logs_migrated` options.
+
 ## [2.1.0] - 2026-07-21
 
 Tuning pass driven by the first live deployment.
