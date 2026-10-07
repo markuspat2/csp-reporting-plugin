@@ -12,6 +12,10 @@ define('CSP_REPORTING_VERSION', 'test');
 define('MINUTE_IN_SECONDS', 60);
 define('DAY_IN_SECONDS', 86400);
 
+// Nonce mode requires WordPress 6.4+; tests run as a supported version
+// unless they override this.
+$GLOBALS['wp_version'] = '6.6';
+
 /**
  * In-memory option store the stubs read/write; tests may prime it.
  *
@@ -35,13 +39,31 @@ function add_option($name, $value) {
     return true;
 }
 
-function apply_filters($hook, $value) {
+/**
+ * Minimal filter registry: add_filter() records callbacks per hook and
+ * apply_filters() runs them in registration order. Unfiltered hooks return
+ * their input unchanged, as before. Tests reset it in setUp().
+ *
+ * @var array
+ */
+$GLOBALS['csp_test_filters'] = array();
+
+function apply_filters($hook, $value, ...$args) {
+    if (!empty($GLOBALS['csp_test_filters'][$hook])) {
+        foreach ($GLOBALS['csp_test_filters'][$hook] as $callback) {
+            $value = call_user_func($callback, $value, ...$args);
+        }
+    }
     return $value;
+}
+
+function add_filter($hook, $callback, $priority = 10, $args = 1) {
+    $GLOBALS['csp_test_filters'][$hook][] = $callback;
+    return true;
 }
 
 function do_action($hook, ...$args) {}
 function add_action($hook, $callback, $priority = 10, $args = 1) {}
-function add_filter($hook, $callback, $priority = 10, $args = 1) {}
 
 function wp_parse_args($args, $defaults = array()) {
     return array_merge($defaults, (array) $args);
@@ -67,6 +89,10 @@ function rest_url($path = '') {
     return 'https://example.test/wp-json/' . ltrim($path, '/');
 }
 
+function esc_attr($text) {
+    return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8');
+}
+
 function __($text, $domain = null) {
     return $text;
 }
@@ -81,6 +107,8 @@ function set_transient($key, $value, $expiration = 0) {
 }
 
 require_once dirname(__DIR__) . '/includes/class-csp-utils.php';
+require_once dirname(__DIR__) . '/includes/class-csp-nonce.php';
+require_once dirname(__DIR__) . '/includes/csp-template-functions.php';
 require_once dirname(__DIR__) . '/includes/class-csp-policy.php';
 require_once dirname(__DIR__) . '/includes/class-csp-database.php';
 require_once dirname(__DIR__) . '/includes/class-csp-logger.php';

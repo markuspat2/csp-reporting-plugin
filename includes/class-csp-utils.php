@@ -58,6 +58,114 @@ class CSP_Utils {
     }
 
     /**
+     * Maximum stored length of a violation's code sample. Browsers send at
+     * most 40 characters; the cap guards against forged reports.
+     */
+    const MAX_SAMPLE_LENGTH = 255;
+
+    /**
+     * Check whether a blocked-uri is a keyword for inline code or eval
+     * rather than a URL.
+     *
+     * 'inline' and 'eval' are what current browsers send; older Firefox
+     * sent 'self' for inline code, and some engines send an empty value.
+     *
+     * @param string $blocked_uri
+     * @return bool
+     */
+    public static function is_inline_like_uri( $blocked_uri ) {
+        return in_array(strtolower(trim( (string) $blocked_uri)), array( '', 'inline', 'eval', 'wasm-eval', 'self' ), true);
+    }
+
+    /**
+     * Classify an inline-code violation for display.
+     *
+     * Event handlers (script-src-attr) cannot carry a nonce and need a code
+     * change; inline blocks (script-src-elem) can be fixed with a nonce.
+     * Reports that only name script-src (older browsers) can't be told
+     * apart.
+     *
+     * @param string $directive Violated directive as stored.
+     * @param string $blocked_uri
+     * @return string One of script-attr, script-elem, script, eval,
+     *                style-attr, style-elem, style; '' for URL-based or
+     *                other-directive violations.
+     */
+    public static function inline_violation_type( $directive, $blocked_uri ) {
+        if ( ! self::is_inline_like_uri($blocked_uri)) {
+            return '';
+        }
+
+        $name = strtolower(trim(explode(' ', trim( (string) $directive))[0]));
+        $base = preg_replace('/-(elem|attr)$/', '', $name);
+
+        if ($base === 'default-src') {
+            $base = 'script-src';
+        }
+
+        if ( ! in_array($base, array( 'script-src', 'style-src' ), true)) {
+            return '';
+        }
+
+        $kind = $base === 'style-src' ? 'style' : 'script';
+
+        if ($kind === 'script' && in_array(strtolower(trim( (string) $blocked_uri)), array( 'eval', 'wasm-eval' ), true)) {
+            return 'eval';
+        }
+
+        if (substr($name, -5) === '-attr') {
+            return $kind . '-attr';
+        }
+
+        if (substr($name, -5) === '-elem') {
+            return $kind . '-elem';
+        }
+
+        return $kind;
+    }
+
+    /**
+     * Human-readable label for an inline_violation_type() value.
+     *
+     * @param string $type
+     * @return string
+     */
+    public static function inline_type_label( $type ) {
+        $labels = array(
+            'script-attr' => __('Inline event handler', 'csp-reporting'),
+            'script-elem' => __('Inline script block', 'csp-reporting'),
+            'script' => __('Inline script (block or handler)', 'csp-reporting'),
+            'eval' => __('eval() / dynamic code', 'csp-reporting'),
+            'style-attr' => __('Inline style attribute', 'csp-reporting'),
+            'style-elem' => __('Inline style block', 'csp-reporting'),
+            'style' => __('Inline style', 'csp-reporting'),
+        );
+
+        return isset($labels[$type]) ? $labels[$type] : '';
+    }
+
+    /**
+     * Clean a reported code sample for storage.
+     *
+     * @param mixed $sample
+     * @return string Trimmed and capped at MAX_SAMPLE_LENGTH characters;
+     *                '' when absent or not a string.
+     */
+    public static function sanitize_sample( $sample ) {
+        if ( ! is_string($sample)) {
+            return '';
+        }
+
+        $sample = trim($sample);
+
+        if (function_exists('mb_substr')) {
+            return mb_substr($sample, 0, self::MAX_SAMPLE_LENGTH, 'UTF-8');
+        }
+
+        return substr($sample, 0, self::MAX_SAMPLE_LENGTH);
+    }
+
+    /**
      * Default ignore patterns for noise every site sees: browser extensions,
      * translation proxies, and inert about: pages.
      *

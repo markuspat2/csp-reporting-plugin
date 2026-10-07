@@ -125,21 +125,39 @@ class CSP_Policy {
      * Build the policy string (without reporting directives).
      *
      * @param string $context 'enforce'|'report-only' — passed to the filter
-     *                        so extensions can vary the policy per header.
+     *                        so extensions can vary the policy per header,
+     *                        and selects that header's nonce setting.
+     * @param bool $allow_nonce False to never add a nonce (wp-admin).
      * @return string
      */
-    public function build_policy_string( $context = 'report-only' ) {
-        $directives = $this->get_directives();
+    public function build_policy_string( $context = 'report-only', $allow_nonce = true ) {
+        return $this->compile($this->get_directives(), $context, $allow_nonce);
+    }
 
+    /**
+     * The single path every header value goes through: filter, normalize,
+     * add script-src extras (nonce, 'strict-dynamic', 'report-sample'),
+     * serialize.
+     *
+     * @param array $directives directive => source string.
+     * @param string $context 'enforce'|'report-only'.
+     * @param bool $allow_nonce
+     * @return string
+     */
+    private function compile( $directives, $context, $allow_nonce ) {
         /**
          * Filter the CSP directives before the header is built.
+         *
+         * Runs before the plugin adds its nonce / 'strict-dynamic' /
+         * 'report-sample' sources, so rebuilding script-src here cannot drop
+         * them.
          *
          * @param array $directives directive => source string ('' for flags).
          * @param string $context 'enforce' or 'report-only'.
          */
         $directives = apply_filters('csp_policy_directives', $directives, $context);
 
-        $parts = array();
+        $normalized = array();
 
         foreach ( (array) $directives as $name => $value) {
             $name  = strtolower(trim($name));
@@ -149,10 +167,199 @@ class CSP_Policy {
                 continue;
             }
 
+            $normalized[$name] = $value;
+        }
+
+        $normalized = $this->apply_script_src_options($normalized, $context, $allow_nonce);
+
+        $parts = array();
+
+        foreach ($normalized as $name => $value) {
             $parts[] = $value === '' ? $name : $name . ' ' . $value;
         }
 
         return implode('; ', $parts);
+    }
+
+    /**
+     * Get the plugin options.
+     *
+     * @return array
+     */
+    private function get_options() {
+        return get_option('csp_reporting_options', array());
+    }
+
+    /**
+     * Whether nonce mode is on for a header, honoring the WordPress version
+     * requirement.
+     *
+     * @param string $context 'enforce' (Content-Security-Policy) or
+     *                        'report-only' (Content-Security-Policy-Report-Only).
+     * @return bool
+     */
+    public function is_nonce_enabled_for( $context ) {
+        if ( ! CSP_Nonce::is_supported()) {
+            return false;
+        }
+
+        $options = $this->get_options();
+        $key     = $context === 'enforce' ? 'csp_nonce_enforce' : 'csp_nonce_report_only';
+
+        return ! empty($options[$key]);
+    }
+
+    /**
+     * Get the header contexts the current mode sends.
+     *
+     * @return string[] Subset of 'enforce', 'report-only'.
+     */
+    public function get_header_contexts() {
+        $mode = $this->get_mode();
+
+        if ($mode === self::MODE_BOTH) {
+            return array( 'enforce', 'report-only' );
+        }
+
+        return array( $mode === self::MODE_ENFORCE ? 'enforce' : 'report-only' );
+    }
+
+    /**
+     * Whether any header sent on front-end requests carries a nonce, i.e.
+     * whether WordPress-printed scripts need stamping.
+     *
+     * @return bool
+     */
+    public function is_nonce_active() {
+        $options = $this->get_options();
+
+        if (empty($options['csp_enabled'])) {
+            return false;
+        }
+
+        foreach ($this->get_header_contexts() as $context) {
+            if ($this->is_nonce_enabled_for($context)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Add the configured script-src extras for one header.
+     *
+     * @param array $directives Normalized directive => sources.
+     * @param string $context
+     * @param bool $allow_nonce
+     * @return array
+     */
+    private function apply_script_src_options( $directives, $context, $allow_nonce ) {
+        $options = $this->get_options();
+        $nonce   = array();
+
+        if ($allow_nonce && $this->is_nonce_enabled_for($context)) {
+            $nonce[] = "'nonce-" . CSP_Nonce::get() . "'";
+
+            if ( ! empty($options['csp_strict_dynamic'])) {
+                $nonce[] = "'strict-dynamic'";
+            }
+        }
+
+        $samples = ! empty($options['csp_report_sample']) ? array( "'report-sample'" ) : array();
+
+        return self::add_script_sources($directives, $nonce, $samples);
+    }
+
+    /**
+     * Add sources to a policy's script directives.
+     *
+     * When the policy has no script-src, one is created from a copy of
+     * default-src so scripts keep exactly the sources they fell back to
+     * before. The nonce is never added to default-src itself: style-src
+     * also falls back to default-src, and a nonce there would make browsers
+     * ignore 'unsafe-inline' for styles.
+     *
+     * Existing sources ('unsafe-inline', hosts, 'self') are kept: browsers
+     * that understand nonces ignore 'unsafe-inline', and with
+     * 'strict-dynamic' they also ignore host and 'self' sources, so leaving
+     * them in is the backward-compatible fallback for older browsers.
+     *
+     * @param array $directives Normalized directive => sources.
+     * @param string[] $nonce_sources Nonce (and 'strict-dynamic'); added to
+     *                                script-src and script-src-elem.
+     * @param string[] $sample_sources 'report-sample'; added to script-src,
+     *                                 script-src-elem, and script-src-attr.
+     * @return array
+     */
+    public static function add_script_sources( $directives, $nonce_sources, $sample_sources = array() ) {
+        if (empty($nonce_sources) && empty($sample_sources)) {
+            return $directives;
+        }
+
+        if ( ! isset($directives['script-src'])) {
+            if (isset($directives['default-src'])) {
+                $directives = self::insert_after($directives, 'default-src', 'script-src', $directives['default-src']);
+            } elseif ( ! empty($nonce_sources)) {
+                // No script restriction at all: nonce mode is an explicit
+                // opt-in to restrict scripts, so start an empty list.
+                $directives['script-src'] = '';
+            } else {
+                // 'report-sample' alone must never start restricting
+                // scripts; with no script policy nothing can be reported.
+                return $directives;
+            }
+        }
+
+        $targets = array(
+            'script-src' => array_merge($nonce_sources, $sample_sources),
+            'script-src-elem' => array_merge($nonce_sources, $sample_sources),
+            'script-src-attr' => $sample_sources,
+        );
+
+        foreach ($targets as $name => $additions) {
+            if (empty($additions) || ! isset($directives[$name])) {
+                continue;
+            }
+
+            $current = trim($directives[$name]);
+
+            // 'none' cannot be combined with other sources.
+            $sources = ( $current === '' || strtolower($current) === "'none'" ) ? array() : explode(' ', $current);
+            $lower   = array_map('strtolower', $sources);
+
+            foreach ($additions as $source) {
+                if ( ! in_array(strtolower($source), $lower, true)) {
+                    $sources[] = $source;
+                }
+            }
+
+            $directives[$name] = implode(' ', $sources);
+        }
+
+        return $directives;
+    }
+
+    /**
+     * Insert a key after another, preserving order.
+     *
+     * @param array $items
+     * @param string $after
+     * @param string $key
+     * @param mixed $value
+     * @return array
+     */
+    private static function insert_after( $items, $after, $key, $value ) {
+        $result = array();
+
+        foreach ($items as $k => $v) {
+            $result[$k] = $v;
+            if ($k === $after) {
+                $result[$key] = $value;
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -178,14 +385,17 @@ class CSP_Policy {
      * Includes a Reporting-Endpoints header defining the report-to group.
      *
      * @param string $report_url Violation report endpoint URL.
+     * @param bool $allow_nonce False to never add a nonce, whatever the
+     *                          settings (wp-admin, which nonce mode does not
+     *                          cover).
      * @return array
      */
-    public function get_headers( $report_url ) {
+    public function get_headers( $report_url, $allow_nonce = true ) {
         $mode    = $this->get_mode();
         $headers = array();
 
         if ($mode === self::MODE_ENFORCE || $mode === self::MODE_BOTH) {
-            $policy = $this->build_policy_string('enforce');
+            $policy = $this->build_policy_string('enforce', $allow_nonce);
             if ($policy !== '') {
                 $headers['Content-Security-Policy'] = $policy . $this->reporting_directives($report_url);
             }
@@ -198,23 +408,16 @@ class CSP_Policy {
             $policy = '';
 
             if ($mode === self::MODE_BOTH) {
-                $options = get_option('csp_reporting_options', array());
-                if ( ! empty($options['csp_test_policy'])) {
-                    $test_directives = self::parse_policy_text($options['csp_test_policy']);
+                $options = $this->get_options();
+                $test    = ! empty($options['csp_test_policy']) ? self::parse_policy_text($options['csp_test_policy']) : array();
 
-                    /** This filter is documented in includes/class-csp-policy.php */
-                    $test_directives = apply_filters('csp_policy_directives', $test_directives, 'report-only');
-
-                    $parts = array();
-                    foreach ( (array) $test_directives as $name => $value) {
-                        $parts[] = $value === '' ? $name : $name . ' ' . $value;
-                    }
-                    $policy = implode('; ', $parts);
+                if ( ! empty($test)) {
+                    $policy = $this->compile($test, 'report-only', $allow_nonce);
                 }
             }
 
             if ($policy === '') {
-                $policy = $this->build_policy_string('report-only');
+                $policy = $this->build_policy_string('report-only', $allow_nonce);
             }
 
             if ($policy !== '') {

@@ -160,10 +160,25 @@ class CSP_Violations_List_Table extends WP_List_Table {
     }
 
     protected function column_blocked_uri( $item ) {
-        $uri     = $item['blocked_uri'];
-        $display = strlen($uri) > 80 ? substr($uri, 0, 77) . '…' : $uri;
+        $uri  = $item['blocked_uri'];
+        $type = CSP_Utils::inline_violation_type($item['directive'], $uri);
 
-        $out = '<span title="' . esc_attr($uri) . '">' . esc_html($display !== '' ? $display : __('(inline)', 'csp-reporting')) . '</span>';
+        if ($type !== '') {
+            // Inline code: say what kind, since the fix differs — a nonce
+            // fixes a <script> block, an event handler needs a code change.
+            $out = '<strong class="csp-inline-type csp-inline-type-' . esc_attr($type) . '">' . esc_html(CSP_Utils::inline_type_label($type)) . '</strong>';
+
+            if ($type === 'script-attr') {
+                $out .= '<br /><small>' . esc_html__('Needs a code change: event handlers cannot carry a nonce. Move it into a script file or a nonced <script> block.', 'csp-reporting') . '</small>';
+            }
+        } else {
+            $display = strlen($uri) > 80 ? substr($uri, 0, 77) . '…' : $uri;
+            $out     = '<span title="' . esc_attr($uri) . '">' . esc_html($display !== '' ? $display : __('(inline)', 'csp-reporting')) . '</span>';
+        }
+
+        if ( ! empty($item['script_sample'])) {
+            $out .= '<br /><code class="csp-sample" title="' . esc_attr__('Code sample sent by the browser', 'csp-reporting') . '">' . esc_html($item['script_sample']) . '</code>';
+        }
 
         if ( ! empty($item['source_file'])) {
             $out .= '<br /><small>' . esc_html(sprintf(

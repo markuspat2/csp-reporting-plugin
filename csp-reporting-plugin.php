@@ -3,7 +3,7 @@
  * Plugin Name: CSP Reporting Plugin
  * Plugin URI: https://github.com/markuspat2/csp-reporting-plugin
  * Description: Content Security Policy (CSP) headers with violation reporting, logging, and analysis for WordPress.
- * Version: 2.1.0
+ * Version: 2.2.0
  * Author: Matchbox Design Group
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,7 +19,7 @@ if ( ! defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('CSP_REPORTING_VERSION', '2.1.0');
+define('CSP_REPORTING_VERSION', '2.2.0');
 define('CSP_REPORTING_PLUGIN_FILE', __FILE__);
 define('CSP_REPORTING_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CSP_REPORTING_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -27,6 +27,8 @@ define('CSP_REPORTING_LOG_DIR', WP_CONTENT_DIR . '/csp-reports/');
 
 // Include required files
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-utils.php';
+require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-nonce.php';
+require_once CSP_REPORTING_PLUGIN_DIR . 'includes/csp-template-functions.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-policy.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-database.php';
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-logger.php';
@@ -101,6 +103,10 @@ class CSP_Reporting_Plugin {
         $this->reporter      = new CSP_Reporter($this->logger, $this->database);
         $this->notifications = new CSP_Notifications($this->database);
 
+        // Schema check on every request (one autoloaded option read) so the
+        // report endpoint never writes before an admin visit upgrades the table.
+        $this->database->maybe_upgrade_schema();
+
         if (is_admin()) {
             $this->database->maybe_upgrade($this->logger);
             CSP_Notifications::schedule(); // No-op when already scheduled; covers upgrades without re-activation.
@@ -118,6 +124,11 @@ class CSP_Reporting_Plugin {
         // Send CSP headers before any output.
         add_action('send_headers', array( $this, 'send_csp_headers' ));
         add_action('admin_init', array( $this, 'maybe_send_admin_csp_headers' ), 1);
+
+        // Nonce mode is front-end only; wp-admin is never stamped.
+        if ( ! is_admin()) {
+            $this->maybe_register_nonce_stamping();
+        }
 
         // Scheduled log cleanup.
         add_action('csp_cleanup_logs', array( $this, 'cleanup_old_logs' ));
@@ -143,6 +154,10 @@ class CSP_Reporting_Plugin {
             'csp_mode' => CSP_Policy::MODE_REPORT_ONLY,
             'csp_test_policy' => '',
             'csp_admin_pages' => false,
+            'csp_nonce_enforce' => false,
+            'csp_nonce_report_only' => false,
+            'csp_strict_dynamic' => false,
+            'csp_report_sample' => false,
             'log_retention_days' => 30,
             'log_max_size' => 10485760, // 10MB
             'file_logging_enabled' => false,
@@ -199,11 +214,37 @@ class CSP_Reporting_Plugin {
      * (used in 1.x) fires mid-document, when header() is already a no-op.
      */
     public function send_csp_headers() {
-        $this->output_csp_header();
+        $this->output_csp_header(true);
+    }
+
+    /**
+     * Stamp the request's nonce onto every script WordPress prints when a
+     * header sent on this request carries the nonce.
+     *
+     * Since WordPress 6.4 (the minimum for nonce mode) every WP_Scripts tag
+     * — enqueued src, inline before/after, wp_localize_script data,
+     * translations — and script modules / the import map go through these
+     * two filters. Scripts printed any other way (hard-coded in templates,
+     * echoed by plugins) are deliberately not stamped: blanket output
+     * stamping would bless injected scripts too. Those show up as
+     * violations instead, and are fixed with csp_nonce_attr().
+     */
+    public function maybe_register_nonce_stamping() {
+        $policy = new CSP_Policy();
+
+        if ( ! $policy->is_nonce_active()) {
+            return;
+        }
+
+        add_filter('wp_script_attributes', array( 'CSP_Nonce', 'add_to_attributes' ));
+        add_filter('wp_inline_script_attributes', array( 'CSP_Nonce', 'add_to_attributes' ));
     }
 
     /**
      * Send CSP headers on admin pages when enabled.
+     *
+     * Nonce mode is front-end only: admin headers never carry a nonce, and
+     * admin scripts are never stamped.
      */
     public function maybe_send_admin_csp_headers() {
         $options = get_option('csp_reporting_options', array());
@@ -212,14 +253,16 @@ class CSP_Reporting_Plugin {
             return;
         }
 
-        $this->output_csp_header();
+        $this->output_csp_header(false);
     }
 
     /**
      * Build and send the CSP header(s) for the configured mode
      * (report-only, enforce, or both).
+     *
+     * @param bool $allow_nonce Whether nonce mode may apply to this request.
      */
-    private function output_csp_header() {
+    private function output_csp_header( $allow_nonce ) {
         if (headers_sent()) {
             return;
         }
@@ -231,7 +274,7 @@ class CSP_Reporting_Plugin {
         }
 
         $policy  = new CSP_Policy();
-        $headers = $policy->get_headers(CSP_Utils::get_report_endpoint_url());
+        $headers = $policy->get_headers(CSP_Utils::get_report_endpoint_url(), $allow_nonce);
 
         foreach ($headers as $name => $value) {
             header($name . ': ' . $value);

@@ -38,6 +38,29 @@ if ( ! defined('ABSPATH')) {
                             <?php echo ! empty($options['csp_enabled']) ? esc_html__('Enabled', 'csp-reporting') : esc_html__('Disabled', 'csp-reporting'); ?>
                         </span>
                     </div>
+                    <?php
+                    $csp_status_policy = new CSP_Policy();
+                    $csp_nonce_headers = array();
+                    foreach ($csp_status_policy->get_header_contexts() as $csp_context) {
+                        if ($csp_status_policy->is_nonce_enabled_for($csp_context)) {
+                            $csp_nonce_headers[] = $csp_context === 'enforce' ? __('enforced', 'csp-reporting') : __('report-only', 'csp-reporting');
+                        }
+                    }
+                    ?>
+                    <div class="status-item">
+                        <span class="status-label"><?php esc_html_e('Nonce Mode:', 'csp-reporting'); ?></span>
+                        <span class="status-value">
+                            <?php
+                            if ( ! CSP_Nonce::is_supported()) {
+                                echo esc_html(sprintf(__('Requires WordPress %s+', 'csp-reporting'), CSP_Nonce::MIN_WP_VERSION));
+                            } elseif (empty($csp_nonce_headers)) {
+                                esc_html_e('Off', 'csp-reporting');
+                            } else {
+                                echo esc_html(implode(', ', $csp_nonce_headers));
+                            }
+                            ?>
+                        </span>
+                    </div>
                     <div class="status-item status-item--stacked">
                         <span class="status-label"><?php esc_html_e('Endpoint URL:', 'csp-reporting'); ?></span>
                         <span class="status-value"><?php echo esc_url(CSP_Utils::get_report_endpoint_url()); ?></span>

@@ -13,6 +13,11 @@ and WP-CLI automation.
 
 ## Features
 
+- **Nonce mode for `script-src`** — adds a per-request `'nonce-…'` (and
+  optionally `'strict-dynamic'`) to the enforced header, the report-only test
+  header, or both, and stamps the nonce on every script WordPress prints. Run
+  it on the Enforce + Test test policy first to inventory every inline script
+  that still needs work, then enforce. Requires WordPress 6.4+; front end only.
 - **Report-Only and Enforce modes** — start in Report-Only, tune the policy
   from real violation data, then flip to Enforce. A dual mode enforces the
   current policy while report-only testing a stricter draft.
@@ -22,6 +27,11 @@ and WP-CLI automation.
 - **Database-backed violation storage** — violations land in a dedicated
   table, deduplicated by directive + blocked URI + page (query strings and
   cache-busters ignored) with hit counters and first/last-seen timestamps.
+  Inline scripts are split per script (by code sample or line), and the code
+  sample browsers send for `'report-sample'` is stored.
+- **Inline inventory** — inline violations are labelled as script blocks
+  (fixable with a nonce) or event handlers (need a code change), with the
+  blocked code sample in the list and in exports.
 - **Violations screen** — sortable, filterable, searchable list table with
   severity badges, bulk delete, and one-click **"Allow this source"** that
   adds a blocked origin to the right directive.
@@ -45,7 +55,8 @@ and WP-CLI automation.
 
 ## Requirements
 
-- WordPress 5.9 or higher
+- WordPress 5.9 or higher (nonce mode requires **WordPress 6.4** or higher;
+  below that its settings are disabled)
 - PHP 7.4 or higher
 
 ## Installation
@@ -79,7 +90,10 @@ and WP-CLI automation.
 4. When new violations dry up, switch to **Enforce**.
 5. To tighten further (e.g. removing `'unsafe-inline'`), use
    **Enforce + Test** mode: keep enforcing the known-good policy while
-   report-only testing the stricter draft in the Test Policy box.
+   report-only testing the stricter draft in the Test Policy box. Turn on
+   **Nonce Mode** for the report-only header to get a per-script inventory of
+   inline code to fix, then enable it on the enforced header. See
+   [Crafting Your Policy](docs/crafting-your-policy.md#tightening-further-removing-unsafe-inline).
 
 ## Settings reference
 
@@ -87,6 +101,8 @@ and WP-CLI automation.
 | --- | --- | --- |
 | Enable CSP Reporting | on | Master switch for sending CSP headers. |
 | Delivery Mode | Report-Only | Report-Only, Enforce, or Enforce + Test. |
+| Nonce Mode (script-src) | off | Per header: add a per-request nonce to the **report-only** header (the test policy in Enforce + Test, or the main policy in Report-Only) and/or the **enforced** header, plus optional `'strict-dynamic'`. Stamps every WordPress-printed script. Requires WordPress 6.4+; never applies to wp-admin. Enforcing it blocks every inline script without the nonce. |
+| Report Samples | off | Add `'report-sample'` to `script-src` on every header sent so reports include the first 40 characters of blocked code. Doesn't change what is blocked; samples are page code and are stored and exported. |
 | Policy Directives | sensible baseline | Per-directive source lists. |
 | Apply to Admin Pages | off | Also send the header on wp-admin. |
 | Log Retention (Days) | 30 | Violations and log files older than this are pruned daily. |
@@ -105,6 +121,8 @@ and WP-CLI automation.
 wp csp status                                  # mode, endpoint, 7-day stats
 wp csp policy get [--format=json]              # current directives
 wp csp policy set script-src "'self' https://cdn.example.com"
+wp csp nonce get                               # nonce mode settings
+wp csp nonce set report-only on                # enforce | report-only | strict-dynamic | report-sample
 wp csp violations list [--severity=high] [--format=csv] [--limit=100]
 wp csp violations clear [--yes]
 wp csp test-report                             # exercise the pipeline
@@ -116,7 +134,13 @@ wp csp test-report                             # exercise the pipeline
 
 - `csp_policy_directives( array $directives, string $context )` — modify the
   directive => sources map before the header is built. `$context` is
-  `enforce` or `report-only`.
+  `enforce` or `report-only`. Runs before nonce mode adds its nonce,
+  `'strict-dynamic'`, and `'report-sample'` sources, so rebuilding
+  `script-src` here can't drop them.
+- `csp_reporting_nonce( string $nonce )` — override the per-request nonce
+  (called once per request). For edge setups where a CDN worker swaps a
+  fixed placeholder for a fresh nonce in both header and HTML. Values that
+  aren't valid CSP base64/base64url are ignored.
 - `csp_report_data( array $report )` — modify (or return a falsy value to
   discard) an enriched report before it is stored.
 - `csp_reporting_ignore_patterns( string[] $patterns )` — adjust the ignore
@@ -136,6 +160,37 @@ wp csp test-report                             # exercise the pipeline
   violation is recorded.
 - `csp_cleanup_logs` — daily cron event that prunes old data.
 - `csp_send_digest` — daily cron event that sends the digest.
+
+### Template functions
+
+For themes and plugins that print their own `<script>` tags (WordPress's
+script API is stamped automatically in nonce mode):
+
+- `csp_nonce()` — the current request's nonce value.
+- `csp_nonce_attr()` — an escaped `nonce="…"` attribute:
+  `<script <?php echo csp_nonce_attr(); ?>>…</script>`.
+
+Both always return a value, even with nonce mode off, so templates can stamp
+unconditionally.
+
+## Nonce mode notes
+
+- **WordPress 6.4+ only.** 6.4 is the first release that prints every
+  `WP_Scripts` tag (enqueued, inline before/after, `wp_localize_script` data,
+  translations) through `wp_script_attributes` / `wp_inline_script_attributes`.
+  On older versions the settings are disabled and ignored.
+- **Front end only.** wp-admin headers never carry a nonce and admin scripts
+  are never stamped, even with "Apply to Admin Pages" on.
+- **No blanket output stamping.** Only scripts printed through WordPress's
+  script API get the nonce. Hard-coded tags show up as violations and are
+  fixed with `csp_nonce_attr()`, so injected scripts are never blessed.
+- **No `script-src`?** It's created from a copy of `default-src` (the nonce is
+  never added to `default-src`, which `style-src` also falls back to). With
+  neither directive, `script-src` contains only the nonce.
+- **Full-page caches** store the nonce with the page, so it's shared until the
+  cache expires. Make sure the cache stores headers with the body. See
+  [Nonces and full-page caching](docs/crafting-your-policy.md#nonces-and-full-page-caching)
+  for the trade-offs.
 
 ## The report endpoint
 
@@ -169,10 +224,15 @@ curl -i -X POST https://example.com/wp-json/csp-reporting/v1/report \
   ever occupies one row.
 - **Behind Cloudflare or a proxy** — client IPs will all be the proxy's
   unless you opt in via `csp_reporting_trusted_ip_headers`.
+- **Nonce mode: every WordPress script reported as blocked** — the header's
+  nonce doesn't match the page's. Usually a cache serving stored HTML with a
+  freshly generated header (or vice versa). Compare the `'nonce-…'` in
+  `curl -sI` output with `nonce="…"` in the page source.
 
 ## Data storage
 
-- Violations: `{$wpdb->prefix}csp_violations` table.
+- Violations: `{$wpdb->prefix}csp_violations` table (schema version 3 adds
+  the `script_sample` column; existing rows are kept as-is on upgrade).
 - Optional raw logs: `wp-content/csp-reports/*.log` (NDJSON, protected by
   `.htaccess`, rotated at the configured size).
 - Retention: both stores are pruned daily after the configured number of

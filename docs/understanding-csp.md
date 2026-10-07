@@ -91,14 +91,55 @@ Read that as three rules:
 | `data:` | Inline `data:` URIs (common for small images and fonts). |
 | `'unsafe-inline'` | Allow inline `<script>`/`<style>` and `style="..."` attributes. |
 | `'unsafe-eval'` | Allow `eval()` and similar dynamic code execution. |
+| `'nonce-…'` | Allow inline scripts carrying this one-time value ([see below](#nonces-and-strict-dynamic)). |
+| `'strict-dynamic'` | Trust scripts loaded by an already-trusted (nonced) script; ignore host allowlists. |
+| `'report-sample'` | Include the first 40 characters of blocked code in violation reports. |
 
 > **About the "unsafe" values:** `'unsafe-inline'` and `'unsafe-eval'` on
 > `script-src` significantly weaken your policy — they're the exact things an
 > attacker wants. Many themes and plugins rely on inline scripts, so you may
 > need them at first, but removing them is the single biggest security win you
-> can work toward. The plugin's **Enforce + Test** mode
+> can work toward. The plugin's **nonce mode** together with **Enforce + Test**
 > ([see the workflow](crafting-your-policy.md#tightening-further-removing-unsafe-inline))
-> is built specifically for testing their removal safely.
+> is built specifically for retiring `'unsafe-inline'` safely.
+
+### Nonces and `'strict-dynamic'`
+
+Allowing inline scripts with `'unsafe-inline'` is risky because the browser
+can't tell your inline scripts from ones an attacker managed to inject. A
+**nonce** fixes that. A nonce is a random value, used once.
+
+1. For every page it serves, the site generates a fresh random value and
+   puts it in the policy: `script-src 'nonce-R4nd0m…'`.
+2. It adds the same value to each of its own script tags:
+   `<script nonce="R4nd0m…">`.
+3. The browser runs only the scripts whose `nonce` matches. Injected code can't
+   know a value that changes on every page load, so it doesn't run.
+
+As soon as a policy contains a nonce, browsers that support nonces **ignore
+`'unsafe-inline'`** for scripts. That's why it's safe to leave
+`'unsafe-inline'` in the policy as a fallback for very old browsers.
+
+**`'strict-dynamic'`** goes one step further. It tells the browser to trust any
+script that a nonced script loads. Tag managers and other loaders work without
+listing every host they pull from. In exchange, the browser **ignores host
+allowlists** (`https://cdn.example.com`, `'self'`) for scripts. Security
+scanners recommend this because host allowlists can often be bypassed through
+a JSONP endpoint or an old library hosted on an allowed domain.
+
+Two things a nonce can't fix:
+
+- **Inline event handlers** (`onclick="…"`, `onload="…"`) and `javascript:`
+  links. They have no tag to put a nonce on, so they need rewriting as
+  `addEventListener` calls in a script.
+- **Scripts that bypass WordPress**: hard-coded `<script>` tags in theme
+  templates or plugins that echo their own. These need the nonce added by hand.
+
+The plugin's **nonce mode** handles the nonce for you: it generates one per
+page, adds it to the policy, and stamps it on every script WordPress prints.
+It requires WordPress 6.4 or newer and covers the front end only.
+[Crafting Your Policy](crafting-your-policy.md#tightening-further-removing-unsafe-inline)
+walks through rolling it out safely.
 
 ---
 
@@ -130,6 +171,8 @@ with the useful details:
 - **`violated-directive`** — which rule was broken (e.g. `script-src-elem`).
 - **`blocked-uri`** — what got blocked (a URL, or a keyword like `inline`/`eval`).
 - **`source-file`, `line-number`** — where in the code it originated, when known.
+- **`script-sample`** — the first 40 characters of the blocked inline code, when
+  the policy includes `'report-sample'`.
 
 The plugin enriches each report with a **severity** rating and stores it,
 grouping identical violations together so a problem seen on 500 pages is one row

@@ -86,6 +86,10 @@ Optional, once you're comfortable:
   field.
 - **Apply to Admin Pages** — leave off unless you specifically want the policy
   on `/wp-admin` too.
+- **Nonce Mode** and **Report Samples** — leave off for now. They're for
+  retiring `'unsafe-inline'` later
+  ([see the workflow](crafting-your-policy.md#tightening-further-removing-unsafe-inline)).
+  Nonce mode requires WordPress 6.4 or newer.
 
 ---
 
@@ -97,9 +101,11 @@ A few things beyond the admin UI, covered in full in the
 - **Report endpoint:** `POST /wp-json/csp-reporting/v1/report`. Accepts both the
   legacy `application/csp-report` object and modern Reporting API
   (`application/reports+json`) batches. It's rate-limited and size-capped.
-- **WP-CLI:** `wp csp status`, `wp csp policy get/set`,
+- **WP-CLI:** `wp csp status`, `wp csp policy get/set`, `wp csp nonce get/set`,
   `wp csp violations list`, `wp csp test-report` — handy for scripting across
   multiple sites.
+- **Template helpers:** `csp_nonce()` and `csp_nonce_attr()` stamp hard-coded
+  `<script>` tags for nonce mode.
 - **Multisite:** policies are per-site; a network admin overview shows per-site
   violation counts.
 

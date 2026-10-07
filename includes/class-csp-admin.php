@@ -88,6 +88,22 @@ class CSP_Admin {
         );
 
         add_settings_field(
+            'csp_nonce_mode',
+            __('Nonce Mode (script-src)', 'csp-reporting'),
+            array( $this, 'nonce_mode_callback' ),
+            'csp-reporting',
+            'csp_general_section'
+        );
+
+        add_settings_field(
+            'csp_report_sample',
+            __('Report Samples', 'csp-reporting'),
+            array( $this, 'report_sample_callback' ),
+            'csp-reporting',
+            'csp_general_section'
+        );
+
+        add_settings_field(
             'csp_policy',
             __('Policy Directives', 'csp-reporting'),
             array( $this, 'policy_builder_callback' ),
@@ -407,6 +423,15 @@ class CSP_Admin {
 
         $sanitized['csp_test_policy'] = isset($input['csp_test_policy']) ? sanitize_textarea_field($input['csp_test_policy']) : '';
 
+        // The nonce checkboxes are disabled (so not submitted) below the
+        // WordPress version nonce mode needs; keep the stored values then.
+        if (CSP_Nonce::is_supported()) {
+            foreach (array( 'csp_nonce_enforce', 'csp_nonce_report_only', 'csp_strict_dynamic' ) as $key) {
+                $sanitized[$key] = ! empty($input[$key]) ? 1 : 0;
+            }
+        }
+        $sanitized['csp_report_sample'] = ! empty($input['csp_report_sample']) ? 1 : 0;
+
         // Policy builder: sanitize each directive's source list. Semicolons
         // and line breaks are stripped so a value cannot inject directives.
         $directives = array();
@@ -553,6 +578,68 @@ class CSP_Admin {
         echo '<p><label for="csp-test-policy">' . esc_html__('Test policy (sent as Report-Only alongside the enforced policy):', 'csp-reporting') . '</label></p>';
         echo '<textarea id="csp-test-policy" name="csp_reporting_options[csp_test_policy]" rows="4" class="large-text code">' . esc_textarea($test_policy) . '</textarea>';
         echo '</div>';
+    }
+
+    public function nonce_mode_callback() {
+        $options   = get_option('csp_reporting_options', array());
+        $supported = CSP_Nonce::is_supported();
+
+        if ( ! $supported) {
+            echo '<p class="csp-nonce-unsupported"><strong>' . esc_html(sprintf(
+                /* translators: 1: required WordPress version, 2: installed version */
+                __('Nonce mode requires WordPress %1$s or newer (this site runs %2$s). Update WordPress to use it.', 'csp-reporting'),
+                CSP_Nonce::MIN_WP_VERSION,
+                isset($GLOBALS['wp_version']) ? $GLOBALS['wp_version'] : '?'
+            )) . '</strong></p>';
+        }
+
+        $fields = array(
+            'csp_nonce_report_only' => array(
+                'id' => 'csp-nonce-report-only',
+                'label' => __('Report-only header — the test policy in Enforce + Test, or the main policy in Report-Only', 'csp-reporting'),
+            ),
+            'csp_nonce_enforce' => array(
+                'id' => 'csp-nonce-enforce',
+                'label' => __('Enforced header (Content-Security-Policy)', 'csp-reporting'),
+            ),
+            'csp_strict_dynamic' => array(
+                'id' => 'csp-strict-dynamic',
+                'label' => __("Also add 'strict-dynamic' to headers that carry the nonce", 'csp-reporting'),
+            ),
+        );
+
+        echo '<fieldset>';
+        foreach ($fields as $key => $field) {
+            printf(
+                '<label for="%1$s"><input type="checkbox" class="csp-nonce-option" id="%1$s" name="csp_reporting_options[%2$s]" value="1" %3$s %4$s /> %5$s</label><br />',
+                esc_attr($field['id']),
+                esc_attr($key),
+                checked( ! empty($options[$key]), true, false),
+                disabled( ! $supported, true, false),
+                esc_html($field['label'])
+            );
+        }
+        echo '</fieldset>';
+
+        echo '<p class="description">' . esc_html__("Adds a fresh 'nonce-…' to script-src on every front-end page and stamps the same nonce on every script WordPress prints (enqueued, inline, and localized data). Browsers that support nonces then run only inline scripts carrying it and ignore 'unsafe-inline'; with 'strict-dynamic' they also ignore host sources and 'self', and trust scripts that a nonced script loads (Tag Manager and most loaders rely on this). Your existing 'unsafe-inline' and host sources are left in place on purpose — older browsers fall back to them.", 'csp-reporting') . '</p>';
+
+        echo '<p class="description">' . esc_html__('Test it first: in Enforce + Test mode, turn it on for the report-only header only. Every inline script and event handler that would break shows up under Violations. Turning it on for the enforced header blocks every inline script without the nonce — including scripts hard-coded in theme templates (stamp those with csp_nonce_attr()) and inline onclick-style handlers, which no nonce can fix — so only enforce once the test policy is quiet.', 'csp-reporting') . '</p>';
+
+        echo '<p class="description">' . esc_html__('Front end only: wp-admin pages never get a nonce, even with "Apply to Admin Pages" on. Full-page caches store the nonce with the page, so every visitor gets the same nonce until the cache expires; make sure your cache stores response headers along with the page, or the header and the page can disagree and an enforced policy will block every script.', 'csp-reporting') . '</p>';
+
+        $directives = ( new CSP_Policy() )->get_directives();
+        if ( ! isset($directives['script-src']) && ! isset($directives['default-src'])) {
+            echo '<p class="description"><strong>' . esc_html__('Your policy has no script-src or default-src, so nonce mode adds a script-src containing only the nonce: scripts without it will be blocked (or reported).', 'csp-reporting') . '</strong></p>';
+        }
+    }
+
+    public function report_sample_callback() {
+        $options = get_option('csp_reporting_options', array());
+        $enabled = ! empty($options['csp_report_sample']);
+
+        echo '<label for="csp-report-sample"><input type="checkbox" id="csp-report-sample" name="csp_reporting_options[csp_report_sample]" value="1" ' . checked($enabled, true, false) . ' /> ';
+        echo esc_html__("Add 'report-sample' to script-src", 'csp-reporting') . '</label>';
+        echo '<p class="description">' . esc_html__('Violation reports then include the first 40 characters of each blocked inline script or event handler, which makes it far easier to find where it comes from. Applies to every header sent and changes nothing about what is blocked. Samples are your page code and can contain page data; they are stored with the violation and included in exports.', 'csp-reporting') . '</p>';
     }
 
     public function policy_builder_callback() {
@@ -1106,6 +1193,10 @@ class CSP_Admin {
                     $row[$int_column] = (int) $row[$int_column];
                 }
             }
+
+            // script-attr (event handler), script-elem (inline block), eval, ...;
+            // '' for URL-based violations.
+            $row['inline_type'] = CSP_Utils::inline_violation_type($row['directive'], $row['blocked_uri']);
         }
         unset($row);
 
@@ -1120,7 +1211,7 @@ class CSP_Admin {
 
         header('Content-Type: text/csv; charset=utf-8');
 
-        $columns = array( 'severity', 'directive', 'blocked_origin', 'blocked_uri', 'document_uri', 'source_file', 'line_number', 'hit_count', 'first_seen', 'last_seen' );
+        $columns = array( 'severity', 'directive', 'inline_type', 'blocked_origin', 'blocked_uri', 'document_uri', 'source_file', 'line_number', 'script_sample', 'hit_count', 'first_seen', 'last_seen' );
 
         $output = fopen('php://output', 'w');
         fputcsv($output, $columns);
