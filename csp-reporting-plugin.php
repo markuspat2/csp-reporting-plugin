@@ -103,6 +103,10 @@ class CSP_Reporting_Plugin {
         $this->reporter      = new CSP_Reporter($this->logger, $this->database);
         $this->notifications = new CSP_Notifications($this->database);
 
+        // Schema check on every request (one autoloaded option read) so the
+        // report endpoint never writes before an admin visit upgrades the table.
+        $this->database->maybe_upgrade_schema();
+
         if (is_admin()) {
             $this->database->maybe_upgrade($this->logger);
             CSP_Notifications::schedule(); // No-op when already scheduled; covers upgrades without re-activation.
