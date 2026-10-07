@@ -98,8 +98,8 @@ $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violatio
         echo esc_html(sprintf(
             /* translators: %d: count of inline/eval violation patterns */
             _n(
-                '%d violation pattern has no allowable source (inline scripts, eval, or data: URIs). These need a policy change — e.g. a nonce/hash strategy or an unsafe-* keyword — not a new origin.',
-                '%d violation patterns have no allowable source (inline scripts, eval, or data: URIs). These need a policy change — e.g. a nonce/hash strategy or an unsafe-* keyword — not a new origin.',
+                '%d violation pattern has no allowable source (inline scripts, event handlers, eval, or data: URIs). These need a code or policy change — e.g. nonce mode for inline script blocks — not a new origin.',
+                '%d violation patterns have no allowable source (inline scripts, event handlers, eval, or data: URIs). These need a code or policy change — e.g. nonce mode for inline script blocks — not a new origin.',
                 $sourceless_count,
                 'csp-reporting'
             ),

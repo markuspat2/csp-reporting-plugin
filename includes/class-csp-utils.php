@@ -125,6 +125,26 @@ class CSP_Utils {
     }
 
     /**
+     * Human-readable label for an inline_violation_type() value.
+     *
+     * @param string $type
+     * @return string
+     */
+    public static function inline_type_label( $type ) {
+        $labels = array(
+            'script-attr' => __('Inline event handler', 'csp-reporting'),
+            'script-elem' => __('Inline script block', 'csp-reporting'),
+            'script' => __('Inline script (block or handler)', 'csp-reporting'),
+            'eval' => __('eval() / dynamic code', 'csp-reporting'),
+            'style-attr' => __('Inline style attribute', 'csp-reporting'),
+            'style-elem' => __('Inline style block', 'csp-reporting'),
+            'style' => __('Inline style', 'csp-reporting'),
+        );
+
+        return isset($labels[$type]) ? $labels[$type] : '';
+    }
+
+    /**
      * Clean a reported code sample for storage.
      *
      * @param mixed $sample

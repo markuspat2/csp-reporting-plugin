@@ -1193,6 +1193,10 @@ class CSP_Admin {
                     $row[$int_column] = (int) $row[$int_column];
                 }
             }
+
+            // script-attr (event handler), script-elem (inline block), eval, ...;
+            // '' for URL-based violations.
+            $row['inline_type'] = CSP_Utils::inline_violation_type($row['directive'], $row['blocked_uri']);
         }
         unset($row);
 
@@ -1207,7 +1211,7 @@ class CSP_Admin {
 
         header('Content-Type: text/csv; charset=utf-8');
 
-        $columns = array( 'severity', 'directive', 'blocked_origin', 'blocked_uri', 'document_uri', 'source_file', 'line_number', 'hit_count', 'first_seen', 'last_seen' );
+        $columns = array( 'severity', 'directive', 'inline_type', 'blocked_origin', 'blocked_uri', 'document_uri', 'source_file', 'line_number', 'script_sample', 'hit_count', 'first_seen', 'last_seen' );
 
         $output = fopen('php://output', 'w');
         fputcsv($output, $columns);

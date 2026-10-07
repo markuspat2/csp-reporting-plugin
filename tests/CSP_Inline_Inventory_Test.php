@@ -147,6 +147,12 @@ class CSP_Inline_Inventory_Test extends TestCase {
         $this->assertSame('', CSP_Utils::inline_violation_type('img-src', ''));
     }
 
+    public function test_inline_type_labels_distinguish_handlers_from_blocks() {
+        $this->assertSame('Inline event handler', CSP_Utils::inline_type_label('script-attr'));
+        $this->assertSame('Inline script block', CSP_Utils::inline_type_label('script-elem'));
+        $this->assertSame('', CSP_Utils::inline_type_label(''));
+    }
+
     public function test_inline_violations_have_no_allowable_source() {
         // Both the one-click "Allow" action and the By Source bulk allow
         // gate on source_from_blocked_uri().
