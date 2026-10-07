@@ -19,7 +19,7 @@ needs, approve the legitimate parts, silence the noise, then enforce.**
 4. Silence      Add ignore patterns for noise you don't control.
 5. Repeat       Let it run again; the list should shrink toward zero.
 6. Enforce      When new violations dry up, switch the mode to Enforce.
-7. Tighten       Use Enforce + Test to safely remove 'unsafe-inline' later.
+7. Tighten       Use nonce mode in Enforce + Test to retire 'unsafe-inline'.
 ```
 
 Steps 2–5 are a loop. You're not trying to get it perfect in one sitting — each
@@ -88,8 +88,8 @@ live preview shows the header you're building as you type.
 > **What about inline/eval violations?** Some violations have no external origin
 > to allow — blocked inline scripts, `eval`, or `data:` scripts. The By Source
 > view lists these separately and notes that they need a *policy* decision
-> (e.g. keeping `'unsafe-inline'` for now, or moving to a nonce/hash strategy),
-> not a new source. See [tightening further](#tightening-further-removing-unsafe-inline).
+> (e.g. keeping `'unsafe-inline'` for now, or moving to nonce mode), not a new
+> source. See [tightening further](#tightening-further-removing-unsafe-inline).
 
 ## Step 4 — Silence the noise
 
@@ -160,26 +160,183 @@ too), and you can allow it the same way.
 
 The default policy includes `'unsafe-inline'` and `'unsafe-eval'` on
 `script-src` because many themes and plugins need them. They also weaken your
-policy the most, so removing them is the highest-value improvement you can make —
-but doing it carelessly can break your site. That's what **Enforce + Test** mode
-is for.
+policy the most, and security scanners flag them (along with host allowlists,
+which attackers can often bypass). The fix the scanners ask for is **nonces with
+`'strict-dynamic'`**, and the plugin's **nonce mode** does the heavy lifting.
+If you're new to nonces, read
+[Nonces and `'strict-dynamic'`](understanding-csp.md#nonces-and-strict-dynamic)
+first.
 
-1. Keep your working, known-good policy as the enforced one.
-2. Settings → **Delivery Mode** → **Enforce + Test**.
-3. In the **Test Policy** box, paste a stricter version of your policy — for
-   example, the same policy but with `'unsafe-inline'`/`'unsafe-eval'` removed
-   from `script-src`.
-4. Save.
+The approach: turn nonce mode on for a **report-only test policy** while your
+current policy stays enforced, let real traffic list every inline script that
+still lacks the nonce, fix them, and only then turn nonce mode on for the
+enforced policy. Nothing breaks along the way.
 
-Now the browser **enforces your safe policy** (so nothing breaks) while
-**report-only testing the stricter one**. Every inline script the stricter
-policy would block shows up as a violation — a punch list of exactly what you'd
-need to fix (usually by adding hashes/nonces or moving inline code into files)
-before the stricter policy is safe to enforce. When the test policy stops
-producing violations, promote it to your enforced policy.
+> **Requirements and scope.** Nonce mode needs **WordPress 6.4 or newer** (the
+> first release that lets plugins stamp every script WordPress prints; on older
+> versions the settings are disabled). It covers `script-src` only and applies
+> to the **front end only**: wp-admin never gets a nonce, even with "Apply to
+> Admin Pages" on. Inline *styles* keep relying on `'unsafe-inline'` in
+> `style-src`.
 
-This is an advanced step. It's completely optional — an enforced policy that
-still allows inline scripts is already far better than no policy at all.
+### Step 1 — Turn on nonce mode for the test policy
+
+1. Settings → **Delivery Mode** → **Enforce + Test**. Your current policy keeps
+   being enforced exactly as before.
+2. In the **Test Policy** box, paste your current policy (or leave the box
+   empty to test the main policy as-is). You can leave `'unsafe-inline'` and
+   your allowed hosts in it — see the note below.
+3. Under **Nonce Mode (script-src)**, tick **Report-only header** and **Also
+   add `'strict-dynamic'`**. Leave **Enforced header** unticked for now.
+4. Tick **Report Samples** so each report includes the first 40 characters of
+   the blocked code. It makes the next steps much faster.
+5. Save, then check a page:
+   - The `Content-Security-Policy-Report-Only` header's `script-src` now ends
+     with `'nonce-…' 'strict-dynamic'`
+     (`curl -sI https://yoursite.com/ | grep -i report-only`).
+   - In the page source, every script WordPress printed carries a matching
+     `nonce="…"`. That covers enqueued files, inline scripts added with
+     `wp_add_inline_script()`, and `wp_localize_script()` data.
+
+> **Why keep `'unsafe-inline'` and hosts in the policy?** Browsers that support
+> nonces ignore `'unsafe-inline'` as soon as a nonce is present, and with
+> `'strict-dynamic'` they also ignore host sources and `'self'`. Older browsers
+> that don't understand nonces fall back to them. So they're harmless to modern
+> browsers and keep old ones working. The plugin never removes them for you.
+
+From WP-CLI: `wp csp nonce set report-only on`,
+`wp csp nonce set strict-dynamic on`, `wp csp nonce set report-sample on`.
+
+### Step 2 — Collect the inline inventory
+
+Let it run on real traffic for a few days, then open **Violations → All
+Violations** and filter by directive:
+
+- **`script-src-elem`, shown as "Inline script block"**: a `<script>` tag
+  without the nonce. Fixable with a nonce (step 3).
+- **`script-src-attr`, shown as "Inline event handler"**: an `onclick=`,
+  `onload=` and so on. **No nonce can fix these**; they need a code change
+  (step 4).
+- **"eval() / dynamic code"**: code passed to `eval()` or `new Function()`.
+  The fix is in the script that calls it, shown as the source file.
+
+Each distinct inline script gets its own row with its page, line number and
+code sample, so the list is your to-do list. External scripts don't show up
+here: with `'strict-dynamic'`, anything a nonced script loads is trusted
+automatically.
+
+### Step 3 — Fix hard-coded scripts
+
+WordPress-printed scripts are stamped automatically. What's left is code that
+prints its own `<script>` tag, usually a theme template or a plugin.
+
+- **Preferred:** move the code into WordPress's script API, which stamps it for
+  you: `wp_enqueue_script()` for files, `wp_add_inline_script()` for snippets.
+- **Quick fix in a template:** add the nonce attribute with the plugin's
+  helper:
+
+  ```php
+  <script <?php echo csp_nonce_attr(); ?>>
+      window.dataLayer = window.dataLayer || [];
+  </script>
+  ```
+
+  `csp_nonce()` returns the raw value if you need it elsewhere. Both helpers
+  are safe to call even when nonce mode is off.
+
+- **Google Tag Manager snippet:** stamp both the `<script>` in `<head>` and
+  anything else your theme hard-codes the same way. The `<noscript>` iframe
+  needs nothing.
+- **A plugin you don't control:** check for a setting or a newer version that
+  uses the script API, or ask its author. Until then it stays on your list.
+
+### Step 4 — Rewrite inline event handlers
+
+Handlers can't carry a nonce, so they have to move into a script:
+
+```html
+<!-- Before -->
+<button onclick="openMenu()">Menu</button>
+
+<!-- After -->
+<button class="js-open-menu">Menu</button>
+```
+
+```js
+// In an enqueued script file:
+document.querySelectorAll('.js-open-menu').forEach(function (el) {
+    el.addEventListener('click', openMenu);
+});
+```
+
+The same goes for `javascript:` links (`href="javascript:…"`).
+
+### Step 5 — Review Google Tag Manager custom HTML tags
+
+GTM is where most surprises hide, because its tags aren't in your theme.
+
+- With `'strict-dynamic'`, scripts that the nonced `gtm.js` loads are trusted,
+  so most tag templates keep working.
+- **Custom HTML tags** that contain inline `<script>` blocks need the nonce. In
+  GTM, create a **DOM Element** variable that reads the `nonce` attribute of
+  your GTM `<script>` tag, and add `nonce="{{your variable}}"` to each
+  `<script>` in your Custom HTML tags.
+- Custom HTML that uses inline event handlers or `document.write()` needs to be
+  rewritten, as in step 4.
+- Violations whose source file is `gtm.js` point at these tags. Use GTM's
+  preview mode to find which tag fires on the reported page.
+
+### Step 6 — Enforce nonce mode
+
+When the test header has stopped producing new inline violations:
+
+1. Under **Nonce Mode**, tick **Enforced header** (keep `'strict-dynamic'`).
+2. Keep **Enforce + Test** running for a while so anything new still shows up.
+
+> **Warning:** once nonce mode is on for the enforced header, **every inline
+> script without the nonce is blocked**, including any hard-coded script or
+> event handler you missed. That's the point, but only flip it once the test
+> policy is quiet.
+
+At that point inline injection is blocked in every modern browser. Some
+scanners read the policy text literally and keep flagging `'unsafe-inline'` or
+host allowlists that browsers are in fact ignoring. To satisfy them, you can
+then edit `script-src` down to `'self'`; the plugin adds the nonce and
+`'strict-dynamic'`. That gives up the fallback for browsers too old to
+understand nonces, which are now very rare.
+
+### Nonces and full-page caching
+
+A nonce is generated by PHP for each page render. If a full-page cache (WP
+Engine, SpinupWP's FastCGI cache, Cloudflare, a caching plugin) stores the page,
+it stores the nonce with it, and every visitor gets **the same nonce** until
+that cache entry expires.
+
+- **That still works.** The cached header and the cached page carry the same
+  nonce, so nothing breaks. But the nonce is no longer per-request, which
+  weakens it: someone who has seen the page can learn the nonce. Your options:
+  - **Accept a per-cache nonce.** This is still a big improvement over
+    `'unsafe-inline'`, and short cache lifetimes limit exposure. It's the
+    practical default for most sites.
+  - **Exclude pages from the cache.** Use this for pages where it matters most
+    (checkout, account, forms), using your host's or cache plugin's
+    exclusions.
+  - **Replace the nonce at the edge.** Have a CDN worker (for example a
+    Cloudflare Worker) swap a fixed placeholder for a fresh value in both the
+    header and the HTML on every response. Return the placeholder from the
+    `csp_reporting_nonce` filter so the cached copy contains it (see the
+    [README](../README.md)).
+- **Check that your cache stores headers.** Some caches save only the HTML and
+  serve it without the headers PHP sent. Others serve the cached HTML while a
+  fresh header is generated. In the first case the page has no CSP at all (true
+  for any CSP header, not just nonces). In the second case, the header's nonce
+  won't match the page's, and **an enforced policy will block every script**.
+  This is one more reason to run nonce mode in the report-only test first:
+  mismatches show up as a flood of violations for scripts WordPress printed,
+  not as a broken site.
+
+The plugin doesn't disable or bypass caching; choose the trade-off that fits
+the site.
 
 ---
 
