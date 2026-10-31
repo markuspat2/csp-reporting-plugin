@@ -93,6 +93,10 @@ function esc_attr($text) {
     return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8');
 }
 
+function wp_mkdir_p($dir) {
+    return is_dir($dir) || mkdir($dir, 0777, true);
+}
+
 function __($text, $domain = null) {
     return $text;
 }

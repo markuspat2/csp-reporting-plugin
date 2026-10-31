@@ -59,8 +59,47 @@ script that still needs work first.
   stripped from samples instead of the whole report failing to store.
 
 ### Fixed
-- Uninstall now also removes the `csp_reporting_db_version` and
-  `csp_reporting_logs_migrated` options.
+- Retention pruning, the digest and dashboard windows, the per-day sparkline,
+  and the high-severity notice compared site-local `last_seen` values with
+  UTC cutoffs, so they were off by the site's UTC offset (on a New York
+  site a violation from 22 hours ago was missing from the "last 24 hours"
+  digest and pruned early by a 1-day retention). Cutoffs are now local.
+- Uninstall on multisite only cleaned the current site: every other site
+  kept its options, violations table, and cron events. It now cleans each
+  site, also clears the digest cron event and the schema/migration options,
+  and no longer relies on `GLOB_BRACE` when purging logs.
+- The release workflow interpolated the free-text `version` input into its
+  shell script; it is now passed via the environment and must be `X.Y.Z`.
+
+### Security
+- **Stored XSS and policy injection from forged reports.** `parse_url()`
+  accepts hosts containing spaces, quotes, `;` and markup, so a forged,
+  unauthenticated report such as
+  `blocked-uri: "https://cdn.example.com 'unsafe-inline'/x.js"` produced an
+  "Allow" link that added `'unsafe-inline'` (or `*`) to the live policy, and a
+  host containing `<img onerror=…>` ran script in wp-admin when the admin
+  clicked "Allow". Origins taken from reports must now be a plain
+  `scheme://host[:port]`, `add_source()` refuses anything else, and admin
+  alerts are inserted as text.
+- **Log file viewer/download read arbitrary files.** The path check compared
+  a `realpath()` prefix: when `wp-content/csp-reports/` was missing it let any
+  path through (including `wp-config.php`), and it accepted sibling
+  directories. Only files the plugin itself lists as log files are served
+  now.
+- **Multisite:** the log directory is shared by every site, so a single
+  site's administrator could read (or clear) all sites' logs — and, through
+  the path bug, the network's `wp-config.php`. Raw log files now require
+  `manage_network_options` on multisite, and 1.x logs are imported only into
+  the main site's table instead of every site's.
+- Raw file logs recorded visitor IPs even with "Store Client IP Addresses"
+  off; they now follow the setting.
+- Report fields of the wrong type (`"blocked-uri": ["x"]`) caused PHP fatal
+  errors on the public endpoint; fields are now coerced to the expected
+  types.
+- Webhooks are sent with `wp_safe_remote_post()`, which refuses private and
+  link-local addresses (e.g. cloud metadata endpoints).
+- The CSV export's formula-injection guard also covers values starting with
+  a tab or carriage return.
 
 ## [2.1.0] - 2026-07-21
 

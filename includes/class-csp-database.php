@@ -189,7 +189,12 @@ class CSP_Database {
         $this->maybe_upgrade_schema();
 
         if ( ! get_option(self::MIGRATED_OPTION)) {
-            $this->migrate_legacy_logs($logger);
+            // On multisite the 1.x log directory is shared by every site, so
+            // importing it per site would copy each site's violations into
+            // all the others. Only the main site imports them.
+            if ( ! is_multisite() || is_main_site()) {
+                $this->migrate_legacy_logs($logger);
+            }
             update_option(self::MIGRATED_OPTION, 1);
         }
     }
@@ -527,7 +532,9 @@ class CSP_Database {
     public function prune( $retention_days ) {
         global $wpdb;
 
-        $cutoff = gmdate('Y-m-d H:i:s', time() - ( (int) $retention_days * DAY_IN_SECONDS ));
+        // first_seen/last_seen are stored in site-local time
+        // (current_time('mysql')), so cutoffs must be local too.
+        $cutoff = wp_date('Y-m-d H:i:s', time() - ( (int) $retention_days * DAY_IN_SECONDS ));
         $table  = self::table_name();
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
@@ -617,7 +624,7 @@ class CSP_Database {
         global $wpdb;
 
         $table = self::table_name();
-        $since = gmdate('Y-m-d H:i:s', time() - ( (int) $days * DAY_IN_SECONDS ));
+        $since = wp_date('Y-m-d H:i:s', time() - ( (int) $days * DAY_IN_SECONDS ));
 
         $stats = array(
             'total_hits' => 0,
@@ -672,7 +679,7 @@ class CSP_Database {
         }
 
         for ($i = $days - 1; $i >= 0; $i--) {
-            $day                   = gmdate('Y-m-d', time() - ( $i * DAY_IN_SECONDS ));
+            $day                   = wp_date('Y-m-d', time() - ( $i * DAY_IN_SECONDS ));
             $stats['by_day'][$day] = isset($by_day[$day]) ? $by_day[$day] : 0;
         }
 

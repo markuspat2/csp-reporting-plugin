@@ -23,14 +23,22 @@ jobs:
 
       - name: Determine version
         id: version
+        env:
+          # Passed via env, never interpolated into the script: a
+          # workflow_dispatch input is free text.
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="$INPUT_VERSION"
             if [ -z "$VERSION" ]; then
               VERSION="$(grep -oP '^\s*\*\s*Version:\s*\K[0-9.]+' csp-reporting-plugin.php)"
             fi
           else
             VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid version '$VERSION' (expected X.Y.Z)" >&2
+            exit 1
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Releasing version ${VERSION}"

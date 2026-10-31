@@ -216,7 +216,10 @@ class CSP_Notifications {
             return;
         }
 
-        wp_remote_post($url, array(
+        // wp_safe_remote_post() refuses private/loopback hosts, so a site
+        // admin can't point the webhook at internal services (on multisite,
+        // site admins aren't trusted with the network's internals).
+        wp_safe_remote_post($url, array(
             'timeout' => 5,
             'headers' => array( 'Content-Type' => 'application/json' ),
             'body' => wp_json_encode(array( 'text' => $text )),

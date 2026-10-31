@@ -126,6 +126,7 @@ class CSP_Reporter {
 
         // Legacy single report.
         if (isset($decoded['csp-report'])) {
+            $decoded = self::normalize_report($decoded);
             return $this->validate_report_structure($decoded) ? array( $decoded ) : array();
         }
 
@@ -155,6 +156,8 @@ class CSP_Reporter {
                 ),
             );
 
+            $report = self::normalize_report($report);
+
             if ($this->validate_report_structure($report)) {
                 $reports[] = $report;
             }
@@ -176,6 +179,40 @@ class CSP_Reporter {
      */
     public static function extract_sample( $csp_report ) {
         return CSP_Utils::sanitize_sample(isset($csp_report['script-sample']) ? $csp_report['script-sample'] : '');
+    }
+
+    /**
+     * Coerce a report's fields to the types the rest of the pipeline expects.
+     *
+     * The endpoint is public, so any field can arrive as an array or object
+     * (`"blocked-uri": ["x"]`), which used to reach preg_match()/substr() and
+     * fatal with a TypeError. Text fields become strings (non-scalars are
+     * dropped), numeric fields become ints, and unknown keys pass through.
+     *
+     * @param array $report_data {"csp-report": {...}}
+     * @return array
+     */
+    public static function normalize_report( $report_data ) {
+        if ( ! isset($report_data['csp-report']) || ! is_array($report_data['csp-report'])) {
+            return $report_data;
+        }
+
+        $text_fields = array( 'document-uri', 'referrer', 'violated-directive', 'effective-directive', 'original-policy', 'disposition', 'blocked-uri', 'source-file', 'script-sample' );
+        $int_fields  = array( 'status-code', 'line-number', 'column-number' );
+
+        foreach ($report_data['csp-report'] as $key => $value) {
+            if (in_array($key, $text_fields, true)) {
+                if (is_scalar($value)) {
+                    $report_data['csp-report'][$key] = (string) $value;
+                } else {
+                    unset($report_data['csp-report'][$key]);
+                }
+            } elseif (in_array($key, $int_fields, true)) {
+                $report_data['csp-report'][$key] = is_numeric($value) ? max(0, (int) $value) : 0;
+            }
+        }
+
+        return $report_data;
     }
 
     /**
