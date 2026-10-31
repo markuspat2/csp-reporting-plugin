@@ -12,6 +12,7 @@ if ( ! defined('ABSPATH')) {
 
 <div class="wrap csp-admin-page">
     <h1><?php esc_html_e('CSP Reporting Settings', 'csp-reporting'); ?></h1>
+    <hr class="wp-header-end">
 
     <?php $this->render_tabs('settings'); ?>
 
@@ -159,11 +160,11 @@ if ( ! defined('ABSPATH')) {
     </div>
     
     <!-- Log Viewer Modal -->
-    <div id="log-viewer-modal" class="csp-modal" style="display: none;">
+    <div id="log-viewer-modal" class="csp-modal hidden" role="dialog" aria-modal="true" aria-labelledby="csp-log-viewer-title">
         <div class="csp-modal-content">
             <div class="csp-modal-header">
-                <h3><?php esc_html_e('Log File Viewer', 'csp-reporting'); ?></h3>
-                <span class="csp-modal-close">&times;</span>
+                <h3 id="csp-log-viewer-title"><?php esc_html_e('Log File Viewer', 'csp-reporting'); ?></h3>
+                <button type="button" class="csp-modal-close button-link" aria-label="<?php esc_attr_e('Close', 'csp-reporting'); ?>">&times;</button>
             </div>
             <div class="csp-modal-body">
                 <pre id="log-content"></pre>

@@ -30,8 +30,13 @@
             // Close modal
             $(document).on('click', '.csp-modal-close', this.closeModal);
             
-            // Close modal on outside click
+            // Close modal on outside click or Escape
             $(window).on('click', this.handleModalOutsideClick);
+            $(document).on('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    $('#log-viewer-modal').addClass('hidden');
+                }
+            });
 
             // Allow blocked source from the violations table
             $(document).on('click', '.csp-allow-source', this.allowSource);
@@ -76,11 +81,11 @@
             var filePath = $button.data('file');
             
             if (!filePath) {
-                CSPAdmin.showAlert('Error: No file path specified', 'error');
+                CSPAdmin.showAlert(csp_admin_ajax.strings.no_file, 'error');
                 return;
             }
             
-            $button.prop('disabled', true).text('Loading...');
+            $button.prop('disabled', true).text(csp_admin_ajax.strings.loading);
             
             $.ajax({
                 url: csp_admin_ajax.ajax_url,
@@ -93,7 +98,8 @@
                 success: function(response) {
                     if (response.success) {
                         $('#log-content').text(response.data.content);
-                        $('#log-viewer-modal').data('current-file', filePath).show();
+                        $('#log-viewer-modal').data('current-file', filePath).removeClass('hidden');
+                        $('#log-viewer-modal .csp-modal-close').first().trigger('focus');
                     } else {
                         CSPAdmin.showAlert(response.data.message || csp_admin_ajax.strings.error_occurred, 'error');
                     }
@@ -102,7 +108,7 @@
                     CSPAdmin.showAlert(csp_admin_ajax.strings.error_occurred, 'error');
                 },
                 complete: function() {
-                    $button.prop('disabled', false).text('View');
+                    $button.prop('disabled', false).text(csp_admin_ajax.strings.view);
                 }
             });
         },
@@ -113,7 +119,7 @@
             var filePath = $(this).data('file') || $('#log-viewer-modal').data('current-file');
             
             if (!filePath) {
-                CSPAdmin.showAlert('Error: No file path specified', 'error');
+                CSPAdmin.showAlert(csp_admin_ajax.strings.no_file, 'error');
                 return;
             }
             
@@ -154,7 +160,7 @@
             }
             
             var $button = $(this);
-            $button.prop('disabled', true).text('Clearing...');
+            $button.prop('disabled', true).text(csp_admin_ajax.strings.clearing);
             
             $.ajax({
                 url: csp_admin_ajax.ajax_url,
@@ -177,7 +183,7 @@
                     CSPAdmin.showAlert(csp_admin_ajax.strings.error_occurred, 'error');
                 },
                 complete: function() {
-                    $button.prop('disabled', false).text('Clear All Logs');
+                    $button.prop('disabled', false).text(csp_admin_ajax.strings.clear_logs);
                 }
             });
         },
@@ -191,7 +197,7 @@
             e.preventDefault();
             
             var $button = $(this);
-            $button.prop('disabled', true).text('Sending...');
+            $button.prop('disabled', true).text(csp_admin_ajax.strings.sending);
 
             $.ajax({
                 url: csp_admin_ajax.ajax_url,
@@ -210,40 +216,51 @@
                         CSPAdmin.showAlert((response.data && response.data.message) || csp_admin_ajax.strings.error_occurred, 'error');
                     }
                 },
-                error: function(xhr, status, error) {
-                    CSPAdmin.showAlert('Failed to send test report: ' + error, 'error');
+                error: function() {
+                    CSPAdmin.showAlert(csp_admin_ajax.strings.error_occurred, 'error');
                 },
                 complete: function() {
-                    $button.prop('disabled', false).text('Send Test Report');
+                    $button.prop('disabled', false).text(csp_admin_ajax.strings.send_test_report);
                 }
             });
         },
         
         closeModal: function(e) {
             e.preventDefault();
-            $('#log-viewer-modal').hide();
+            $('#log-viewer-modal').addClass('hidden');
         },
         
         handleModalOutsideClick: function(e) {
             if (e.target.id === 'log-viewer-modal') {
-                $('#log-viewer-modal').hide();
+                $('#log-viewer-modal').addClass('hidden');
             }
         },
         
+        // Standard admin notice (notice-success / notice-error / ...),
+        // announced to screen readers. Messages can echo report data (e.g. a
+        // blocked origin), so they are always inserted as text, never HTML.
         showAlert: function(message, type) {
             type = type || 'info';
-            
-            // Messages can echo report data (e.g. a blocked origin), so they
-            // are always inserted as text, never as HTML.
-            var $alert = $('<div>', { 'class': 'csp-alert csp-alert-' + type }).text(message);
-            
-            $('.csp-admin-page').prepend($alert);
-            
-            setTimeout(function() {
-                $alert.fadeOut(300, function() {
-                    $(this).remove();
-                });
-            }, 5000);
+
+            var $notice = $('<div>', { 'class': 'notice notice-' + type + ' is-dismissible' })
+                .append($('<p>').text(message));
+            var $anchor = $('.csp-admin-page .wp-header-end').first();
+
+            $('.csp-admin-page .notice.csp-js-notice').remove();
+            $notice.addClass('csp-js-notice');
+
+            if ($anchor.length) {
+                $anchor.after($notice);
+            } else {
+                $('.csp-admin-page').prepend($notice);
+            }
+
+            // Lets core's common.js add the dismiss button to the new notice.
+            $(document).trigger('wp-updates-notice-added');
+
+            if (window.wp && wp.a11y && wp.a11y.speak) {
+                wp.a11y.speak(message, type === 'error' ? 'assertive' : 'polite');
+            }
         }
     };
     

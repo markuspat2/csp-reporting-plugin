@@ -367,36 +367,16 @@
     font-weight: 600;
 }
 
-/* Alert Styles */
-.csp-alert {
-    padding: 12px 15px;
-    margin: 15px 0;
-    border-radius: 4px;
-    border-left: 4px solid;
+/* Hidden state for the log viewer (core's .hidden loses to .csp-modal's display:flex). */
+.csp-modal.hidden {
+    display: none;
 }
 
-.csp-alert-info {
-    background-color: #e7f3ff;
-    border-left-color: #0073aa;
-    color: #0073aa;
-}
-
-.csp-alert-warning {
-    background-color: #fff8e5;
-    border-left-color: #dba617;
-    color: #8a6914;
-}
-
-.csp-alert-error {
-    background-color: #fcf0f1;
-    border-left-color: #d63638;
-    color: #d63638;
-}
-
-.csp-alert-success {
-    background-color: #f0f6fc;
-    border-left-color: #00a32a;
-    color: #00a32a;
+.csp-modal-close.button-link {
+    font-size: 24px;
+    line-height: 1;
+    text-decoration: none;
+    color: #50575e;
 }
 
 
@@ -465,4 +445,24 @@ code.csp-sample {
     max-width: 100%;
     white-space: pre-wrap;
     word-break: break-all;
+}
+
+/* Policy builder */
+.csp-policy-builder .csp-col-directive {
+    width: 180px;
+}
+
+.csp-policy-preview {
+    white-space: pre-wrap;
+}
+
+/* Wide tables scroll inside their box on small screens instead of
+   widening the page. */
+.csp-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.csp-table-scroll .csp-by-source-table {
+    min-width: 720px;
 }
