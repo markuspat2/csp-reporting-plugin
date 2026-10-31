@@ -256,10 +256,11 @@ class CSP_Admin {
             return;
         }
 
-        $options   = get_option('csp_reporting_options', array());
-        $log_stats = $this->logger->get_log_statistics();
-        $log_files = $this->logger->get_log_files();
-        $db_stats  = $this->database->get_stats(7);
+        $options         = get_option('csp_reporting_options', array());
+        $can_manage_logs = $this->can_manage_log_files();
+        $log_stats       = $this->logger->get_log_statistics();
+        $log_files       = $can_manage_logs ? $this->logger->get_log_files() : array();
+        $db_stats        = $this->database->get_stats(7);
 
         include CSP_REPORTING_PLUGIN_DIR . 'templates/admin-page.php';
     }
@@ -677,26 +678,58 @@ class CSP_Admin {
     }
 
     /**
+     * Whether the current user may view, download, or clear raw log files.
+     *
+     * On multisite every site writes to the same wp-content/csp-reports/
+     * directory, so the files hold other sites' data: only network admins
+     * may touch them.
+     *
+     * @return bool
+     */
+    public function can_manage_log_files() {
+        return current_user_can(is_multisite() ? 'manage_network_options' : 'manage_options');
+    }
+
+    /**
+     * Resolve the posted file_path to one of the plugin's own log files.
+     *
+     * Only an exact match against CSP_Logger::get_log_files() is accepted.
+     * The previous realpath() prefix check let any path through when the log
+     * directory was missing (realpath() returns false, and a false needle
+     * matches at offset 0) and accepted sibling directories such as
+     * csp-reports-old/.
+     *
+     * @return string|false Absolute path of the log file, or false.
+     */
+    private function resolve_log_file() {
+        $requested = isset($_POST['file_path']) ? realpath(wp_unslash($_POST['file_path'])) : false; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized,WordPress.Security.NonceVerification.Missing -- compared only against known paths; nonce checked by callers.
+
+        if ( ! $requested) {
+            return false;
+        }
+
+        foreach ($this->logger->get_log_files() as $file) {
+            if (realpath($file) === $requested && is_readable($file)) {
+                return $requested;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Download log file via AJAX
      */
     public function download_log_file() {
         check_ajax_referer('csp_admin_nonce', 'nonce');
 
-        if ( ! current_user_can('manage_options')) {
+        if ( ! $this->can_manage_log_files()) {
             wp_die(esc_html__('You do not have sufficient permissions to access this page.', 'csp-reporting'));
         }
 
-        $file_path = sanitize_text_field($_POST['file_path']);
+        $file_path = $this->resolve_log_file();
 
-        if ( ! file_exists($file_path) || ! is_readable($file_path)) {
-            wp_die(esc_html__('File not found or not readable.', 'csp-reporting'));
-        }
-
-        // Verify the file is within the log directory
-        $log_dir   = realpath(CSP_REPORTING_LOG_DIR);
-        $file_path = realpath($file_path);
-
-        if (strpos($file_path, $log_dir) !== 0) {
+        if ( ! $file_path) {
             wp_die(esc_html__('Invalid file path.', 'csp-reporting'));
         }
 
@@ -714,7 +747,7 @@ class CSP_Admin {
     public function clear_log_files() {
         check_ajax_referer('csp_admin_nonce', 'nonce');
 
-        if ( ! current_user_can('manage_options')) {
+        if ( ! $this->can_manage_log_files()) {
             wp_die(esc_html__('You do not have sufficient permissions to access this page.', 'csp-reporting'));
         }
 
@@ -738,23 +771,13 @@ class CSP_Admin {
     public function get_log_content() {
         check_ajax_referer('csp_admin_nonce', 'nonce');
 
-        if ( ! current_user_can('manage_options')) {
+        if ( ! $this->can_manage_log_files()) {
             wp_die(esc_html__('You do not have sufficient permissions to access this page.', 'csp-reporting'));
         }
 
-        $file_path = sanitize_text_field($_POST['file_path']);
+        $file_path = $this->resolve_log_file();
 
-        if ( ! file_exists($file_path) || ! is_readable($file_path)) {
-            wp_send_json_error(array(
-                'message' => __('File not found or not readable.', 'csp-reporting'),
-            ));
-        }
-
-        // Verify the file is within the log directory
-        $log_dir   = realpath(CSP_REPORTING_LOG_DIR);
-        $file_path = realpath($file_path);
-
-        if (strpos($file_path, $log_dir) !== 0) {
+        if ( ! $file_path) {
             wp_send_json_error(array(
                 'message' => __('Invalid file path.', 'csp-reporting'),
             ));
@@ -1130,7 +1153,7 @@ class CSP_Admin {
             foreach ($columns as $column) {
                 $value = isset($row[$column]) ? $row[$column] : '';
                 // Guard against spreadsheet formula injection.
-                if (is_string($value) && $value !== '' && strpbrk($value[0], '=+-@') !== false) {
+                if (is_string($value) && $value !== '' && strpbrk($value[0], "=+-@\t\r") !== false) {
                     $value = "'" . $value;
                 }
                 $line[] = $value;
