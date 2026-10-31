@@ -52,6 +52,11 @@ script that still needs work first.
 - Schema version 3 adds a nullable `script_sample` column. Existing rows are
   not rewritten. Old per-page inline aggregate rows age out through
   retention.
+- The upgrade runs under an atomic lock, so only one of many concurrent
+  requests performs the `ALTER TABLE`, and the version is recorded only once
+  the column exists, so a failed `ALTER` is retried.
+- On tables still using 3-byte `utf8`, 4-byte characters (emoji) are
+  stripped from samples instead of the whole report failing to store.
 
 ### Fixed
 - Uninstall now also removes the `csp_reporting_db_version` and

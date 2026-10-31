@@ -24,8 +24,14 @@ class CSP_Database {
      */
     const DB_VERSION = '3';
 
-    const DB_VERSION_OPTION = 'csp_reporting_db_version';
-    const MIGRATED_OPTION   = 'csp_reporting_logs_migrated';
+    const DB_VERSION_OPTION   = 'csp_reporting_db_version';
+    const UPGRADE_LOCK_OPTION = 'csp_reporting_upgrade_lock';
+
+    /**
+     * Seconds after which an upgrade lock is considered abandoned.
+     */
+    const UPGRADE_LOCK_TTL = 300;
+    const MIGRATED_OPTION  = 'csp_reporting_logs_migrated';
 
     /**
      * Get the violations table name.
@@ -76,7 +82,13 @@ class CSP_Database {
 
         dbDelta($sql);
 
-        update_option(self::DB_VERSION_OPTION, self::DB_VERSION);
+        // Only record the new version once the schema really has it, so a
+        // failed ALTER (e.g. a DB user without ALTER privilege) is retried
+        // instead of leaving inserts failing against a missing column.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        if ($wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'script_sample'))) {
+            update_option(self::DB_VERSION_OPTION, self::DB_VERSION);
+        }
     }
 
     /**
@@ -93,16 +105,79 @@ class CSP_Database {
             return;
         }
 
+        // On a busy site many requests see the old version at once; only the
+        // one that takes the lock runs the ALTER, the rest carry on.
+        if ( ! self::acquire_upgrade_lock()) {
+            return;
+        }
+
         self::install();
 
         if ($installed_version === '1') {
             $this->upgrade_to_v2();
         }
 
+        self::release_upgrade_lock();
+
         // v2 → v3 only adds the nullable script_sample column (handled by
         // install()). Existing rows keep their hashes: URL-based hashes are
         // unchanged, and the old one-row-per-page inline aggregates simply
         // age out through retention while new reports land in finer rows.
+    }
+
+    /**
+     * Take the schema-upgrade lock.
+     *
+     * INSERT IGNORE on the options table is atomic, so exactly one of any
+     * number of concurrent requests gets it (the pattern core's
+     * WP_Upgrader::create_lock() uses). A lock older than UPGRADE_LOCK_TTL is
+     * treated as abandoned and taken over.
+     *
+     * @return bool
+     */
+    private static function acquire_upgrade_lock() {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $created = $wpdb->query($wpdb->prepare(
+            "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+            self::UPGRADE_LOCK_OPTION,
+            time()
+        ));
+
+        if ($created) {
+            return true;
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $locked_at = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+            self::UPGRADE_LOCK_OPTION
+        ));
+
+        if ($locked_at > time() - self::UPGRADE_LOCK_TTL) {
+            return false;
+        }
+
+        // Abandoned: take it over only if nobody else just did.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        return (bool) $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+            time(),
+            self::UPGRADE_LOCK_OPTION,
+            $locked_at
+        ));
+    }
+
+    /**
+     * Release the schema-upgrade lock.
+     */
+    private static function release_upgrade_lock() {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s", self::UPGRADE_LOCK_OPTION));
+        wp_cache_delete(self::UPGRADE_LOCK_OPTION, 'options');
     }
 
     /**
@@ -261,8 +336,17 @@ class CSP_Database {
         $violation = wp_parse_args($violation, $defaults);
 
         $sample = CSP_Utils::sanitize_sample($violation['script_sample']);
+        $table  = self::table_name();
 
-        $hash  = self::report_hash(
+        // Tables still on 3-byte utf8 reject 4-byte characters (emoji are
+        // common in inline code), and wpdb then drops the whole insert.
+        // Strip them for such columns; utf8mb4 tables keep them.
+        if ($sample !== '' && preg_match('/[\x{10000}-\x{10FFFF}]/u', $sample)) {
+            $stripped = $wpdb->strip_invalid_text_for_column($table, 'script_sample', $sample);
+            $sample   = is_string($stripped) ? $stripped : '';
+        }
+
+        $hash = self::report_hash(
             $violation['directive'],
             $violation['blocked_uri'],
             $violation['document_uri'],
@@ -270,7 +354,6 @@ class CSP_Database {
             $violation['line_number'],
             $sample
         );
-        $table = self::table_name();
 
         $origin = CSP_Policy::source_from_blocked_uri($violation['blocked_uri']);
 
