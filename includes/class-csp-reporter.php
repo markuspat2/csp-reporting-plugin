@@ -152,6 +152,7 @@ class CSP_Reporter {
                     'source-file' => isset($body['sourceFile']) ? $body['sourceFile'] : '',
                     'line-number' => isset($body['lineNumber']) ? (int) $body['lineNumber'] : 0,
                     'column-number' => isset($body['columnNumber']) ? (int) $body['columnNumber'] : 0,
+                    'script-sample' => isset($body['sample']) ? $body['sample'] : '',
                 ),
             );
 
@@ -163,6 +164,21 @@ class CSP_Reporter {
         }
 
         return $reports;
+    }
+
+    /**
+     * Get the code sample from a legacy-shaped report.
+     *
+     * Browsers include the first 40 characters of blocked inline code (or
+     * the eval'd string) when the directive has 'report-sample': as
+     * script-sample in report-uri payloads, and as sample in Reporting API
+     * bodies (which extract_reports() maps to script-sample).
+     *
+     * @param array $csp_report
+     * @return string
+     */
+    public static function extract_sample( $csp_report ) {
+        return CSP_Utils::sanitize_sample(isset($csp_report['script-sample']) ? $csp_report['script-sample'] : '');
     }
 
     /**
@@ -318,6 +334,7 @@ class CSP_Reporter {
             'source_file' => isset($csp_report['source-file']) ? $csp_report['source-file'] : '',
             'line_number' => isset($csp_report['line-number']) ? (int) $csp_report['line-number'] : 0,
             'column_number' => isset($csp_report['column-number']) ? (int) $csp_report['column-number'] : 0,
+            'script_sample' => self::extract_sample($csp_report),
             'disposition' => isset($csp_report['disposition']) ? $csp_report['disposition'] : 'report',
             'user_agent' => $enriched_report['server_info']['user_agent'],
             'client_ip' => $enriched_report['client_ip'],

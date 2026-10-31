@@ -3,7 +3,73 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [2.2.0] - Unreleased
+
+Nonce mode: move `script-src` off `'unsafe-inline'` and host allowlists to
+`'nonce-…' 'strict-dynamic'`, using Enforce + Test to inventory every inline
+script that still needs work first.
+
+### Added
+- **Nonce mode for `script-src`** (requires WordPress 6.4+, front end only).
+  It is set separately for the enforced header and the report-only header,
+  so it can run on the Enforce + Test test policy alone. A per-request nonce
+  is added to that header's `script-src`. If there is no `script-src`, one
+  is created from a copy of `default-src`. Optionally `'strict-dynamic'` is
+  added too. Existing `'unsafe-inline'` and host sources are kept as the
+  fallback for older browsers.
+- Every script WordPress prints gets the nonce through
+  `wp_script_attributes` / `wp_inline_script_attributes`. That covers
+  enqueued scripts, inline before/after scripts, `wp_localize_script` data,
+  translations, script modules, and the import map. Nothing is stamped in
+  wp-admin, and nothing is stamped by output buffering.
+- Template helpers `csp_nonce()` and `csp_nonce_attr()` for hard-coded
+  `<script>` tags, and a `csp_reporting_nonce` filter to override the value
+  (e.g. an edge placeholder).
+- **Report Samples** setting: adds `'report-sample'` to `script-src` on every
+  header sent. Code samples from both report formats (`script-sample` and
+  Reporting API `sample`) are stored, capped at 255 characters, shown in the
+  Violations list, searchable, and included in CSV/JSON exports.
+- Inline violations are labelled as inline script blocks (fixable with a
+  nonce), inline event handlers (need a code change), or eval. The label is
+  in the list, and exports carry it as an `inline_type` column.
+- `wp csp nonce get|set` and nonce rows in `wp csp status`. Nonce mode in
+  the sidebar status.
+- The live header preview shows each header the mode sends, including
+  `'nonce-{generated per request}'`.
+
+### Changed
+- Distinct inline scripts on one page are now separate violation rows. The
+  dedup hash for inline/eval violations includes the source file and code
+  sample (or line number when there is no sample). URL-based hashes are
+  unchanged.
+- The test policy and the enforced policy are built by one code path, so
+  the test policy is now normalized the same way.
+- The database schema check runs on every request (one option read), so
+  reports that arrive before an admin page loads after an update are not
+  lost.
+
+### Database
+- Schema version 3 adds a nullable `script_sample` column. Existing rows are
+  not rewritten. Old per-page inline aggregate rows age out through
+  retention.
+- The upgrade runs under an atomic lock, so only one of many concurrent
+  requests performs the `ALTER TABLE`, and the version is recorded only once
+  the column exists, so a failed `ALTER` is retried.
+- On tables still using 3-byte `utf8`, 4-byte characters (emoji) are
+  stripped from samples instead of the whole report failing to store.
+
+### Fixed
+- Retention pruning, the digest and dashboard windows, the per-day sparkline,
+  and the high-severity notice compared site-local `last_seen` values with
+  UTC cutoffs, so they were off by the site's UTC offset (on a New York
+  site a violation from 22 hours ago was missing from the "last 24 hours"
+  digest and pruned early by a 1-day retention). Cutoffs are now local.
+- Uninstall on multisite only cleaned the current site: every other site
+  kept its options, violations table, and cron events. It now cleans each
+  site, also clears the digest cron event and the schema/migration options,
+  and no longer relies on `GLOB_BRACE` when purging logs.
+- The release workflow interpolated the free-text `version` input into its
+  shell script; it is now passed via the environment and must be `X.Y.Z`.
 
 ### Security
 - **Stored XSS and policy injection from forged reports.** `parse_url()`
@@ -34,19 +100,6 @@ is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   link-local addresses (e.g. cloud metadata endpoints).
 - The CSV export's formula-injection guard also covers values starting with
   a tab or carriage return.
-
-### Fixed
-- Retention pruning, the digest and dashboard windows, the per-day sparkline,
-  and the high-severity notice compared site-local `last_seen` values with
-  UTC cutoffs, so they were off by the site's UTC offset (on a New York
-  site a violation from 22 hours ago was missing from the "last 24 hours"
-  digest and pruned early by a 1-day retention). Cutoffs are now local.
-- Uninstall on multisite only cleaned the current site: every other site
-  kept its options, violations table, and cron events. It now cleans each
-  site, also clears the digest cron event and the schema/migration options,
-  and no longer relies on `GLOB_BRACE` when purging logs.
-- The release workflow interpolated the free-text `version` input into its
-  shell script; it is now passed via the environment and must be `X.Y.Z`.
 
 ## [2.1.0] - 2026-07-21
 

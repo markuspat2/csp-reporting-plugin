@@ -17,11 +17,21 @@ class CSP_Database {
      *
      * v2: blocked_origin column; dedup hash computed on normalized URIs
      * (query strings/fragments stripped) with existing duplicates merged.
+     *
+     * v3: script_sample column. Inline/eval violations hash on their source
+     * location or sample so distinct inline scripts get separate rows;
+     * URL-based hashes are unchanged and existing rows are not rewritten.
      */
-    const DB_VERSION = '2';
+    const DB_VERSION = '3';
 
-    const DB_VERSION_OPTION = 'csp_reporting_db_version';
-    const MIGRATED_OPTION   = 'csp_reporting_logs_migrated';
+    const DB_VERSION_OPTION   = 'csp_reporting_db_version';
+    const UPGRADE_LOCK_OPTION = 'csp_reporting_upgrade_lock';
+
+    /**
+     * Seconds after which an upgrade lock is considered abandoned.
+     */
+    const UPGRADE_LOCK_TTL = 300;
+    const MIGRATED_OPTION  = 'csp_reporting_logs_migrated';
 
     /**
      * Get the violations table name.
@@ -55,6 +65,7 @@ class CSP_Database {
             source_file TEXT NULL,
             line_number INT(11) UNSIGNED NOT NULL DEFAULT 0,
             column_number INT(11) UNSIGNED NOT NULL DEFAULT 0,
+            script_sample VARCHAR(255) NULL,
             disposition VARCHAR(10) NOT NULL DEFAULT 'report',
             user_agent VARCHAR(255) NOT NULL DEFAULT '',
             client_ip VARCHAR(45) NOT NULL DEFAULT '',
@@ -71,24 +82,111 @@ class CSP_Database {
 
         dbDelta($sql);
 
-        update_option(self::DB_VERSION_OPTION, self::DB_VERSION);
+        // Only record the new version once the schema really has it, so a
+        // failed ALTER (e.g. a DB user without ALTER privilege) is retried
+        // instead of leaving inserts failing against a missing column.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        if ($wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'script_sample'))) {
+            update_option(self::DB_VERSION_OPTION, self::DB_VERSION);
+        }
     }
 
     /**
-     * Install/upgrade the schema if needed and migrate legacy file logs once.
+     * Install/upgrade the schema when the stored version differs.
+     *
+     * Cheap (one autoloaded option read) and run on every request, so the
+     * report endpoint never writes to a table that is missing a column
+     * because no admin page has loaded since the plugin was updated.
+     */
+    public function maybe_upgrade_schema() {
+        $installed_version = get_option(self::DB_VERSION_OPTION);
+
+        if ($installed_version === self::DB_VERSION) {
+            return;
+        }
+
+        // On a busy site many requests see the old version at once; only the
+        // one that takes the lock runs the ALTER, the rest carry on.
+        if ( ! self::acquire_upgrade_lock()) {
+            return;
+        }
+
+        self::install();
+
+        if ($installed_version === '1') {
+            $this->upgrade_to_v2();
+        }
+
+        self::release_upgrade_lock();
+
+        // v2 → v3 only adds the nullable script_sample column (handled by
+        // install()). Existing rows keep their hashes: URL-based hashes are
+        // unchanged, and the old one-row-per-page inline aggregates simply
+        // age out through retention while new reports land in finer rows.
+    }
+
+    /**
+     * Take the schema-upgrade lock.
+     *
+     * INSERT IGNORE on the options table is atomic, so exactly one of any
+     * number of concurrent requests gets it (the pattern core's
+     * WP_Upgrader::create_lock() uses). A lock older than UPGRADE_LOCK_TTL is
+     * treated as abandoned and taken over.
+     *
+     * @return bool
+     */
+    private static function acquire_upgrade_lock() {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $created = $wpdb->query($wpdb->prepare(
+            "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+            self::UPGRADE_LOCK_OPTION,
+            time()
+        ));
+
+        if ($created) {
+            return true;
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $locked_at = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+            self::UPGRADE_LOCK_OPTION
+        ));
+
+        if ($locked_at > time() - self::UPGRADE_LOCK_TTL) {
+            return false;
+        }
+
+        // Abandoned: take it over only if nobody else just did.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        return (bool) $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+            time(),
+            self::UPGRADE_LOCK_OPTION,
+            $locked_at
+        ));
+    }
+
+    /**
+     * Release the schema-upgrade lock.
+     */
+    private static function release_upgrade_lock() {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s", self::UPGRADE_LOCK_OPTION));
+        wp_cache_delete(self::UPGRADE_LOCK_OPTION, 'options');
+    }
+
+    /**
+     * Upgrade the schema if needed and migrate legacy file logs once.
      *
      * @param CSP_Logger $logger Used to parse legacy log files.
      */
     public function maybe_upgrade( $logger ) {
-        $installed_version = get_option(self::DB_VERSION_OPTION);
-
-        if ($installed_version !== self::DB_VERSION) {
-            self::install();
-
-            if ($installed_version === '1') {
-                $this->upgrade_to_v2();
-            }
-        }
+        $this->maybe_upgrade_schema();
 
         if ( ! get_option(self::MIGRATED_OPTION)) {
             // On multisite the 1.x log directory is shared by every site, so
@@ -108,17 +206,31 @@ class CSP_Database {
      * query strings and fragments) on the same page path are one violation
      * pattern; they increment a counter instead of inserting a new row.
      *
+     * Inline and eval violations all share the blocked-uri keyword, so for
+     * those the hash also includes where the code is: the source file plus
+     * the code sample when the report has one, otherwise the line number.
+     * The sample is preferred because line numbers shift when page content
+     * above the script changes. URL-based hashes are exactly as before v3.
+     *
      * @param string $directive
      * @param string $blocked_uri
      * @param string $document_uri
+     * @param string $source_file
+     * @param int $line_number
+     * @param string $sample
      * @return string
      */
-    public static function report_hash( $directive, $blocked_uri, $document_uri ) {
-        return sha1(
-            $directive . '|'
+    public static function report_hash( $directive, $blocked_uri, $document_uri, $source_file = '', $line_number = 0, $sample = '' ) {
+        $key = $directive . '|'
             . CSP_Utils::normalize_uri_for_hash($blocked_uri) . '|'
-            . CSP_Utils::normalize_uri_for_hash($document_uri)
-        );
+            . CSP_Utils::normalize_uri_for_hash($document_uri);
+
+        if (CSP_Utils::is_inline_like_uri($blocked_uri)) {
+            $key .= '|' . CSP_Utils::normalize_uri_for_hash($source_file) . '|'
+                . ( (string) $sample !== '' ? 'sample:' . $sample : 'line:' . (int) $line_number );
+        }
+
+        return sha1($key);
     }
 
     /**
@@ -134,14 +246,14 @@ class CSP_Database {
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $rows = $wpdb->get_results(
-            "SELECT id, directive, blocked_uri, document_uri, hit_count, first_seen, last_seen FROM {$table} ORDER BY id ASC",
+            "SELECT id, directive, blocked_uri, document_uri, source_file, line_number, hit_count, first_seen, last_seen FROM {$table} ORDER BY id ASC",
             ARRAY_A
         );
 
         $groups = array();
 
         foreach ( (array) $rows as $row) {
-            $hash = self::report_hash($row['directive'], $row['blocked_uri'], $row['document_uri']);
+            $hash = self::report_hash($row['directive'], $row['blocked_uri'], $row['document_uri'], $row['source_file'], $row['line_number']);
 
             if ( ! isset($groups[$hash])) {
                 $origin        = CSP_Policy::source_from_blocked_uri($row['blocked_uri']);
@@ -201,6 +313,7 @@ class CSP_Database {
      *     @type string $source_file
      *     @type int    $line_number
      *     @type int    $column_number
+     *     @type string $script_sample
      *     @type string $disposition
      *     @type string $user_agent
      *     @type string $client_ip
@@ -219,6 +332,7 @@ class CSP_Database {
             'source_file' => '',
             'line_number' => 0,
             'column_number' => 0,
+            'script_sample' => '',
             'disposition' => 'report',
             'user_agent' => '',
             'client_ip' => '',
@@ -226,8 +340,25 @@ class CSP_Database {
         );
         $violation = wp_parse_args($violation, $defaults);
 
-        $hash  = self::report_hash($violation['directive'], $violation['blocked_uri'], $violation['document_uri']);
-        $table = self::table_name();
+        $sample = CSP_Utils::sanitize_sample($violation['script_sample']);
+        $table  = self::table_name();
+
+        // Tables still on 3-byte utf8 reject 4-byte characters (emoji are
+        // common in inline code), and wpdb then drops the whole insert.
+        // Strip them for such columns; utf8mb4 tables keep them.
+        if ($sample !== '' && preg_match('/[\x{10000}-\x{10FFFF}]/u', $sample)) {
+            $stripped = $wpdb->strip_invalid_text_for_column($table, 'script_sample', $sample);
+            $sample   = is_string($stripped) ? $stripped : '';
+        }
+
+        $hash = self::report_hash(
+            $violation['directive'],
+            $violation['blocked_uri'],
+            $violation['document_uri'],
+            $violation['source_file'],
+            $violation['line_number'],
+            $sample
+        );
 
         $origin = CSP_Policy::source_from_blocked_uri($violation['blocked_uri']);
 
@@ -235,9 +366,9 @@ class CSP_Database {
         $result = $wpdb->query($wpdb->prepare(
             "INSERT INTO {$table}
                 (report_hash, severity, directive, blocked_origin, blocked_uri, document_uri, source_file,
-                 line_number, column_number, disposition, user_agent, client_ip,
+                 line_number, column_number, script_sample, disposition, user_agent, client_ip,
                  hit_count, first_seen, last_seen)
-             VALUES (%s, %s, %s, %s, %s, %s, %s, %d, %d, %s, %s, %s, 1, %s, %s)
+             VALUES (%s, %s, %s, %s, %s, %s, %s, %d, %d, NULLIF(%s, ''), %s, %s, %s, 1, %s, %s)
              ON DUPLICATE KEY UPDATE
                 hit_count = hit_count + 1,
                 last_seen = VALUES(last_seen),
@@ -252,6 +383,7 @@ class CSP_Database {
             $violation['source_file'],
             (int) $violation['line_number'],
             (int) $violation['column_number'],
+            $sample,
             substr($violation['disposition'], 0, 10),
             substr($violation['user_agent'], 0, 255),
             substr($violation['client_ip'], 0, 45),
@@ -283,7 +415,7 @@ class CSP_Database {
 
         if ( ! empty($args['search'])) {
             $like    = '%' . $wpdb->esc_like($args['search']) . '%';
-            $where[] = $wpdb->prepare('(blocked_uri LIKE %s OR document_uri LIKE %s OR source_file LIKE %s)', $like, $like, $like);
+            $where[] = $wpdb->prepare('(blocked_uri LIKE %s OR document_uri LIKE %s OR source_file LIKE %s OR script_sample LIKE %s)', $like, $like, $like, $like);
         }
 
         if ( ! empty($args['since'])) {
@@ -585,6 +717,7 @@ class CSP_Database {
                     'source_file' => isset($report['source-file']) ? $report['source-file'] : '',
                     'line_number' => isset($report['line-number']) ? (int) $report['line-number'] : 0,
                     'column_number' => isset($report['column-number']) ? (int) $report['column-number'] : 0,
+                    'script_sample' => isset($report['script-sample']) ? $report['script-sample'] : '',
                     'disposition' => isset($report['disposition']) ? $report['disposition'] : 'report',
                     'user_agent' => isset($entry['user_agent']) ? $entry['user_agent'] : '',
                     'client_ip' => isset($entry['ip_address']) ? $entry['ip_address'] : '',
