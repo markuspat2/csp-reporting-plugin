@@ -275,12 +275,13 @@ The same goes for `javascript:` links (`href="javascript:…"`).
 
 GTM is where most surprises hide, because its tags aren't in your theme.
 
-- With `'strict-dynamic'`, scripts that the nonced `gtm.js` loads are trusted,
-  so most tag templates keep working.
-- **Custom HTML tags** that contain inline `<script>` blocks need the nonce. In
-  GTM, create a **DOM Element** variable that reads the `nonce` attribute of
-  your GTM `<script>` tag, and add `nonce="{{your variable}}"` to each
-  `<script>` in your Custom HTML tags.
+- With `'strict-dynamic'`, scripts that the nonced `gtm.js` inserts are
+  trusted, so most tags — including many Custom HTML tags, whose scripts GTM
+  re-creates itself — keep working.
+- **If Custom HTML tags still show up as violations** (or you run nonce mode
+  without `'strict-dynamic'`), pass them the nonce: in GTM, create a **DOM
+  Element** variable that reads the `nonce` attribute of your GTM `<script>`
+  tag, and add `nonce="{{your variable}}"` to each `<script>` in those tags.
 - Custom HTML that uses inline event handlers or `document.write()` needs to be
   rewritten, as in step 4.
 - Violations whose source file is `gtm.js` point at these tags. Use GTM's
