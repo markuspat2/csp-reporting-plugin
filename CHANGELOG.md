@@ -35,6 +35,19 @@ is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The CSV export's formula-injection guard also covers values starting with
   a tab or carriage return.
 
+### Fixed
+- Retention pruning, the digest and dashboard windows, the per-day sparkline,
+  and the high-severity notice compared site-local `last_seen` values with
+  UTC cutoffs, so they were off by the site's UTC offset (on a New York
+  site a violation from 22 hours ago was missing from the "last 24 hours"
+  digest and pruned early by a 1-day retention). Cutoffs are now local.
+- Uninstall on multisite only cleaned the current site: every other site
+  kept its options, violations table, and cron events. It now cleans each
+  site, also clears the digest cron event and the schema/migration options,
+  and no longer relies on `GLOB_BRACE` when purging logs.
+- The release workflow interpolated the free-text `version` input into its
+  shell script; it is now passed via the environment and must be `X.Y.Z`.
+
 ## [2.1.0] - 2026-07-21
 
 Tuning pass driven by the first live deployment.
