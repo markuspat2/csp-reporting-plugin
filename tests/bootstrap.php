@@ -67,6 +67,10 @@ function rest_url($path = '') {
     return 'https://example.test/wp-json/' . ltrim($path, '/');
 }
 
+function wp_mkdir_p($dir) {
+    return is_dir($dir) || mkdir($dir, 0777, true);
+}
+
 function __($text, $domain = null) {
     return $text;
 }

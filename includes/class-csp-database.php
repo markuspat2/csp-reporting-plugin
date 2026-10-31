@@ -91,7 +91,12 @@ class CSP_Database {
         }
 
         if ( ! get_option(self::MIGRATED_OPTION)) {
-            $this->migrate_legacy_logs($logger);
+            // On multisite the 1.x log directory is shared by every site, so
+            // importing it per site would copy each site's violations into
+            // all the others. Only the main site imports them.
+            if ( ! is_multisite() || is_main_site()) {
+                $this->migrate_legacy_logs($logger);
+            }
             update_option(self::MIGRATED_OPTION, 1);
         }
     }

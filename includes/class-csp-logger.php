@@ -83,9 +83,13 @@ class CSP_Logger {
      * @return string
      */
     private function format_log_entry( $report_data ) {
+        $options = get_option('csp_reporting_options', array());
+
         $log_entry = array(
             'timestamp' => current_time('Y-m-d H:i:s'),
-            'ip_address' => CSP_Utils::get_client_ip(),
+            // Same rule as the database: IPs are personal data and are only
+            // recorded when "Store Client IP Addresses" is on.
+            'ip_address' => ! empty($options['store_client_ip']) ? CSP_Utils::get_client_ip() : '',
             'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'Unknown',
             'report_data' => $report_data,
         );
