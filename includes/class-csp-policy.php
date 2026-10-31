@@ -275,7 +275,28 @@ class CSP_Policy {
             $origin .= ':' . (int) $parts['port'];
         }
 
-        return $origin;
+        // blocked-uri comes from unauthenticated reports, and parse_url()
+        // accepts hosts containing spaces, quotes, ';' and markup — e.g.
+        // "https://cdn.example.com 'unsafe-inline'/x.js". Anything that is
+        // not a plain origin must never reach the policy or the admin UI.
+        return self::is_valid_origin($origin) ? $origin : false;
+    }
+
+    /**
+     * Check that a value is a plain origin: scheme://host[:port] with a DNS
+     * hostname, IPv4 address, or bracketed IPv6 address — nothing that could
+     * add a source keyword or directive to a policy.
+     *
+     * @param string $origin
+     * @return bool
+     */
+    public static function is_valid_origin( $origin ) {
+        $label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+
+        return (bool) preg_match(
+            '#^(?:https?|wss?)://(?:(?:' . $label . '\.)*' . $label . '|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?$#',
+            (string) $origin
+        );
     }
 
     /**
@@ -323,11 +344,12 @@ class CSP_Policy {
      * Add a source to a directive and persist the policy.
      *
      * @param string $directive Base directive (must be a source directive).
-     * @param string $source Source expression (an origin).
+     * @param string $source An origin (scheme://host[:port]); anything else
+     *                       is rejected.
      * @return bool True when added, false when invalid or already present.
      */
     public function add_source( $directive, $source ) {
-        if ( ! in_array($directive, self::source_directives(), true) || $source === '') {
+        if ( ! in_array($directive, self::source_directives(), true) || ! self::is_valid_origin($source)) {
             return false;
         }
 

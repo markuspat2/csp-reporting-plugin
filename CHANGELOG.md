@@ -3,6 +3,38 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Security
+- **Stored XSS and policy injection from forged reports.** `parse_url()`
+  accepts hosts containing spaces, quotes, `;` and markup, so a forged,
+  unauthenticated report such as
+  `blocked-uri: "https://cdn.example.com 'unsafe-inline'/x.js"` produced an
+  "Allow" link that added `'unsafe-inline'` (or `*`) to the live policy, and a
+  host containing `<img onerror=…>` ran script in wp-admin when the admin
+  clicked "Allow". Origins taken from reports must now be a plain
+  `scheme://host[:port]`, `add_source()` refuses anything else, and admin
+  alerts are inserted as text.
+- **Log file viewer/download read arbitrary files.** The path check compared
+  a `realpath()` prefix: when `wp-content/csp-reports/` was missing it let any
+  path through (including `wp-config.php`), and it accepted sibling
+  directories. Only files the plugin itself lists as log files are served
+  now.
+- **Multisite:** the log directory is shared by every site, so a single
+  site's administrator could read (or clear) all sites' logs — and, through
+  the path bug, the network's `wp-config.php`. Raw log files now require
+  `manage_network_options` on multisite, and 1.x logs are imported only into
+  the main site's table instead of every site's.
+- Raw file logs recorded visitor IPs even with "Store Client IP Addresses"
+  off; they now follow the setting.
+- Report fields of the wrong type (`"blocked-uri": ["x"]`) caused PHP fatal
+  errors on the public endpoint; fields are now coerced to the expected
+  types.
+- Webhooks are sent with `wp_safe_remote_post()`, which refuses private and
+  link-local addresses (e.g. cloud metadata endpoints).
+- The CSV export's formula-injection guard also covers values starting with
+  a tab or carriage return.
+
 ## [2.1.0] - 2026-07-21
 
 Tuning pass driven by the first live deployment.
