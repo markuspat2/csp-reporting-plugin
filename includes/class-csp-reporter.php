@@ -372,8 +372,6 @@ class CSP_Reporter {
             do_action('csp_violation_logged', $enriched_report, $enriched_report['severity']);
         }
 
-        $this->check_admin_notifications($enriched_report);
-
         return $stored;
     }
 
@@ -429,66 +427,12 @@ class CSP_Reporter {
                 return 'high';
             }
 
-            // Browsers report blocked inline scripts / eval with these
-            // keyword values (not the full 'unsafe-*' source expressions).
-            if (in_array($blocked_uri, array( 'inline', 'eval', 'wasm-eval', '' ), true)) {
-                return 'medium';
-            }
-
+            // Everything else on script-src — external hosts and inline/eval
+            // (reported as 'inline'/'eval', not 'unsafe-*') — needs review.
             return 'medium';
         }
 
         return 'low';
-    }
-
-    /**
-     * Check if admin notifications should be triggered
-     *
-     * @param array $report_data
-     */
-    private function check_admin_notifications( $report_data ) {
-        $options = get_option('csp_reporting_options', array());
-
-        if (empty($options['enable_admin_notices'])) {
-            return;
-        }
-
-        if (in_array($report_data['severity'], array( 'medium', 'high' ), true)) {
-            $this->trigger_admin_notification($report_data);
-        }
-    }
-
-    /**
-     * Trigger admin notification
-     *
-     * @param array $report_data
-     */
-    private function trigger_admin_notification( $report_data ) {
-        $csp_report = $report_data['csp-report'];
-        $severity   = $report_data['severity'];
-
-        $message = sprintf(
-            __('CSP Violation Alert: %1$s violation detected on %2$s. Blocked URI: %3$s', 'csp-reporting'),
-            strtoupper($severity),
-            $csp_report['document-uri'],
-            isset($csp_report['blocked-uri']) ? $csp_report['blocked-uri'] : ''
-        );
-
-        error_log('CSP Reporting Plugin: ' . $message);
-
-        $notifications   = get_option('csp_admin_notifications', array());
-        $notifications[] = array(
-            'timestamp' => current_time('mysql'),
-            'severity' => $severity,
-            'message' => $message,
-        );
-
-        // Keep only last 50 notifications
-        if (count($notifications) > 50) {
-            $notifications = array_slice($notifications, -50);
-        }
-
-        update_option('csp_admin_notifications', $notifications, false);
     }
 
     /**
@@ -525,15 +469,5 @@ class CSP_Reporter {
             'error' => $message,
             'code' => $code,
         ), $code);
-    }
-
-    /**
-     * Get violation statistics for the last N days.
-     *
-     * @param int $days
-     * @return array See CSP_Database::get_stats().
-     */
-    public function get_violation_statistics( $days = 7 ) {
-        return $this->database->get_stats($days);
     }
 }
