@@ -28,6 +28,8 @@ class CSP_Admin {
         $this->reporter = $reporter instanceof CSP_Reporter ? $reporter : new CSP_Reporter($this->logger, $this->database);
 
         add_action('admin_menu', array( $this, 'add_admin_menu' ));
+        add_filter('plugin_action_links_' . plugin_basename(CSP_REPORTING_PLUGIN_FILE), array( $this, 'plugin_action_links' ));
+        add_filter('set_screen_option_csp_violations_per_page', array( $this, 'save_screen_option' ), 10, 3);
         add_action('admin_init', array( $this, 'register_settings' ));
         add_action('admin_enqueue_scripts', array( $this, 'enqueue_admin_scripts' ));
         add_action('admin_notices', array( $this, 'show_admin_notices' ));
@@ -49,13 +51,112 @@ class CSP_Admin {
      * Add admin menu
      */
     public function add_admin_menu() {
-        add_options_page(
+        $hook = add_options_page(
             __('CSP Reporting', 'csp-reporting'),
             __('CSP Reporting', 'csp-reporting'),
             'manage_options',
             'csp-reporting',
             array( $this, 'admin_page' )
         );
+
+        if ($hook) {
+            add_action('load-' . $hook, array( $this, 'load_admin_page' ));
+        }
+    }
+
+    /**
+     * Add "Settings" and "Violations" links to the plugin's row on the
+     * Plugins screen.
+     *
+     * @param string[] $links
+     * @return string[]
+     */
+    public function plugin_action_links( $links ) {
+        if ( ! current_user_can('manage_options')) {
+            return $links;
+        }
+
+        $base = admin_url('options-general.php?page=csp-reporting');
+
+        array_unshift(
+            $links,
+            sprintf('<a href="%s">%s</a>', esc_url($base), esc_html__('Settings', 'csp-reporting')),
+            sprintf('<a href="%s">%s</a>', esc_url(add_query_arg('tab', 'violations', $base)), esc_html__('Violations', 'csp-reporting'))
+        );
+
+        return $links;
+    }
+
+    /**
+     * Runs before the plugin screen renders: contextual help and, on the
+     * violations list, the "Number of items per page" screen option.
+     */
+    public function load_admin_page() {
+        $screen = get_current_screen();
+        $tab    = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'settings'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab routing.
+        $view   = isset($_GET['view']) ? sanitize_key($_GET['view']) : 'all'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view routing.
+
+        if ($tab === 'violations' && $view !== 'source') {
+            add_screen_option('per_page', array(
+                'label' => __('Violations per page', 'csp-reporting'),
+                'default' => 20,
+                'option' => 'csp_violations_per_page',
+            ));
+        }
+
+        $docs = 'https://github.com/markuspat2/csp-reporting-plugin/blob/main/docs/';
+
+        $screen->add_help_tab(array(
+            'id' => 'csp-overview',
+            'title' => __('Overview', 'csp-reporting'),
+            'content' =>
+                '<p>' . esc_html__('The plugin sends your Content Security Policy as a response header and collects the violation reports browsers send back. Start in Report-Only, allow the sources your site really uses (Violations → By Source), then switch to Enforce.', 'csp-reporting') . '</p>' .
+                '<p>' . esc_html__('Enforce + Test keeps enforcing your current policy while a stricter draft runs report-only, so you can tighten the policy without breaking the site.', 'csp-reporting') . '</p>',
+        ));
+
+        $screen->add_help_tab(array(
+            'id' => 'csp-nonce-mode',
+            'title' => __('Nonce mode', 'csp-reporting'),
+            'content' =>
+                '<p>' . esc_html__("Nonce mode adds a fresh 'nonce-…' to script-src on every front-end page and stamps the same nonce on every script WordPress prints (enqueued files, inline scripts, and localized data). Browsers that support nonces then run only inline scripts carrying it and ignore 'unsafe-inline'; with 'strict-dynamic' they also ignore host sources and 'self', and trust scripts a nonced script loads, which Tag Manager and most loaders rely on.", 'csp-reporting') . '</p>' .
+                '<p>' . esc_html__('Roll it out in Enforce + Test: enable it for the report-only header, and every inline script and event handler that would break appears under Violations. Fix hard-coded scripts with csp_nonce_attr() and rewrite onclick-style handlers, which no nonce can fix. Only then enable it for the enforced header, which blocks every inline script without the nonce.', 'csp-reporting') . '</p>' .
+                '<p>' . esc_html__('wp-admin never gets a nonce, even with "Apply to Admin Pages" on. Nonce mode requires WordPress 6.4 or newer.', 'csp-reporting') . '</p>',
+        ));
+
+        $screen->add_help_tab(array(
+            'id' => 'csp-caching',
+            'title' => __('Caching and servers', 'csp-reporting'),
+            'content' =>
+                '<p>' . esc_html__('Full-page caches store the nonce with the page, so every visitor gets the same nonce until the cache expires. Make sure the cache stores response headers along with the page; if it serves cached HTML with a freshly generated header (or the reverse), the nonces disagree and an enforced policy blocks every script.', 'csp-reporting') . '</p>' .
+                '<p>' . esc_html__('Raw log files get a random name and a deny-all .htaccess, but nginx ignores .htaccess: block the directory in the server config or move it outside the web root with CSP_REPORTING_LOG_DIR in wp-config.php.', 'csp-reporting') . '</p>',
+        ));
+
+        $screen->add_help_tab(array(
+            'id' => 'csp-violations',
+            'title' => __('Violations', 'csp-reporting'),
+            'content' =>
+                '<p>' . esc_html__('Each row is one violation pattern with a hit counter. "Allow" adds a blocked origin to the right directive; it is only offered for plain origins, because anyone can send the report endpoint a fake report.', 'csp-reporting') . '</p>' .
+                '<p>' . esc_html__('Inline script blocks can be fixed with nonce mode; inline event handlers need a code change. With Report Samples on, rows show the first 40 characters of the blocked code.', 'csp-reporting') . '</p>',
+        ));
+
+        $screen->set_help_sidebar(
+            '<p><strong>' . esc_html__('Guides', 'csp-reporting') . '</strong></p>' .
+            '<p><a href="' . esc_url($docs . 'getting-started.md') . '">' . esc_html__('Getting Started', 'csp-reporting') . '</a></p>' .
+            '<p><a href="' . esc_url($docs . 'understanding-csp.md') . '">' . esc_html__('Understanding CSP', 'csp-reporting') . '</a></p>' .
+            '<p><a href="' . esc_url($docs . 'crafting-your-policy.md') . '">' . esc_html__('Crafting Your Policy', 'csp-reporting') . '</a></p>'
+        );
+    }
+
+    /**
+     * Persist the "Violations per page" screen option.
+     *
+     * @param mixed $status
+     * @param string $option
+     * @param int $value
+     * @return int|mixed
+     */
+    public function save_screen_option( $status, $option, $value ) {
+        return $option === 'csp_violations_per_page' ? max(1, min(500, (int) $value)) : $status;
     }
 
     /**
@@ -76,7 +177,8 @@ class CSP_Admin {
             __('Enable CSP Reporting', 'csp-reporting'),
             array( $this, 'csp_enabled_callback' ),
             'csp-reporting',
-            'csp_general_section'
+            'csp_general_section',
+            array( 'label_for' => 'csp-enabled' )
         );
 
         add_settings_field(
@@ -84,7 +186,8 @@ class CSP_Admin {
             __('Delivery Mode', 'csp-reporting'),
             array( $this, 'csp_mode_callback' ),
             'csp-reporting',
-            'csp_general_section'
+            'csp_general_section',
+            array( 'label_for' => 'csp-mode-select' )
         );
 
         add_settings_field(
@@ -100,7 +203,8 @@ class CSP_Admin {
             __('Report Samples', 'csp-reporting'),
             array( $this, 'report_sample_callback' ),
             'csp-reporting',
-            'csp_general_section'
+            'csp_general_section',
+            array( 'label_for' => 'csp-report-sample' )
         );
 
         add_settings_field(
@@ -116,7 +220,8 @@ class CSP_Admin {
             __('Apply to Admin Pages', 'csp-reporting'),
             array( $this, 'csp_admin_pages_callback' ),
             'csp-reporting',
-            'csp_general_section'
+            'csp_general_section',
+            array( 'label_for' => 'csp-admin-pages' )
         );
 
         add_settings_section(
@@ -131,15 +236,17 @@ class CSP_Admin {
             __('Log Retention (Days)', 'csp-reporting'),
             array( $this, 'log_retention_callback' ),
             'csp-reporting',
-            'csp_logging_section'
+            'csp_logging_section',
+            array( 'label_for' => 'csp-log-retention' )
         );
 
         add_settings_field(
             'log_max_size',
-            __('Max Log File Size (Bytes)', 'csp-reporting'),
+            __('Max Log File Size (MB)', 'csp-reporting'),
             array( $this, 'log_max_size_callback' ),
             'csp-reporting',
-            'csp_logging_section'
+            'csp_logging_section',
+            array( 'label_for' => 'csp-log-max-size' )
         );
 
         add_settings_field(
@@ -147,7 +254,8 @@ class CSP_Admin {
             __('Raw File Logging', 'csp-reporting'),
             array( $this, 'file_logging_callback' ),
             'csp-reporting',
-            'csp_logging_section'
+            'csp_logging_section',
+            array( 'label_for' => 'csp-file-logging' )
         );
 
         add_settings_field(
@@ -155,7 +263,8 @@ class CSP_Admin {
             __('Rate Limit (Reports/Minute/IP)', 'csp-reporting'),
             array( $this, 'rate_limit_callback' ),
             'csp-reporting',
-            'csp_logging_section'
+            'csp_logging_section',
+            array( 'label_for' => 'csp-rate-limit' )
         );
 
         add_settings_field(
@@ -163,7 +272,8 @@ class CSP_Admin {
             __('Ignore Patterns', 'csp-reporting'),
             array( $this, 'ignore_patterns_callback' ),
             'csp-reporting',
-            'csp_logging_section'
+            'csp_logging_section',
+            array( 'label_for' => 'csp-ignore-patterns' )
         );
 
         add_settings_field(
@@ -171,7 +281,8 @@ class CSP_Admin {
             __('Store Client IP Addresses', 'csp-reporting'),
             array( $this, 'store_client_ip_callback' ),
             'csp-reporting',
-            'csp_logging_section'
+            'csp_logging_section',
+            array( 'label_for' => 'csp-store-client-ip' )
         );
 
         add_settings_field(
@@ -179,7 +290,8 @@ class CSP_Admin {
             __('Enable Admin Notices', 'csp-reporting'),
             array( $this, 'admin_notices_callback' ),
             'csp-reporting',
-            'csp_logging_section'
+            'csp_logging_section',
+            array( 'label_for' => 'csp-admin-notices' )
         );
 
         add_settings_field(
@@ -187,7 +299,8 @@ class CSP_Admin {
             __('Purge Logs on Uninstall', 'csp-reporting'),
             array( $this, 'purge_logs_callback' ),
             'csp-reporting',
-            'csp_logging_section'
+            'csp_logging_section',
+            array( 'label_for' => 'csp-purge-logs' )
         );
 
         add_settings_section(
@@ -202,7 +315,8 @@ class CSP_Admin {
             __('Email Notifications', 'csp-reporting'),
             array( $this, 'notify_email_enabled_callback' ),
             'csp-reporting',
-            'csp_notifications_section'
+            'csp_notifications_section',
+            array( 'label_for' => 'csp-notify-email' )
         );
 
         add_settings_field(
@@ -210,7 +324,8 @@ class CSP_Admin {
             __('Recipients', 'csp-reporting'),
             array( $this, 'notify_recipients_callback' ),
             'csp-reporting',
-            'csp_notifications_section'
+            'csp_notifications_section',
+            array( 'label_for' => 'csp-notify-recipients' )
         );
 
         add_settings_field(
@@ -218,7 +333,8 @@ class CSP_Admin {
             __('Digest Frequency', 'csp-reporting'),
             array( $this, 'notify_frequency_callback' ),
             'csp-reporting',
-            'csp_notifications_section'
+            'csp_notifications_section',
+            array( 'label_for' => 'csp-notify-frequency' )
         );
 
         add_settings_field(
@@ -226,7 +342,8 @@ class CSP_Admin {
             __('Immediate High-Severity Alerts', 'csp-reporting'),
             array( $this, 'notify_immediate_callback' ),
             'csp-reporting',
-            'csp_notifications_section'
+            'csp_notifications_section',
+            array( 'label_for' => 'csp-notify-immediate' )
         );
 
         add_settings_field(
@@ -234,7 +351,8 @@ class CSP_Admin {
             __('Webhook URL', 'csp-reporting'),
             array( $this, 'notify_webhook_callback' ),
             'csp-reporting',
-            'csp_notifications_section'
+            'csp_notifications_section',
+            array( 'label_for' => 'csp-notify-webhook' )
         );
     }
 
@@ -247,7 +365,7 @@ class CSP_Admin {
         }
 
         wp_enqueue_style('csp-admin-style', CSP_REPORTING_PLUGIN_URL . 'assets/admin.css', array(), CSP_REPORTING_VERSION);
-        wp_enqueue_script('csp-admin-script', CSP_REPORTING_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), CSP_REPORTING_VERSION, true);
+        wp_enqueue_script('csp-admin-script', CSP_REPORTING_PLUGIN_URL . 'assets/admin.js', array( 'jquery', 'wp-a11y' ), CSP_REPORTING_VERSION, true);
         wp_enqueue_script('csp-policy-builder', CSP_REPORTING_PLUGIN_URL . 'assets/policy-builder.js', array( 'jquery' ), CSP_REPORTING_VERSION, true);
 
         wp_localize_script('csp-admin-script', 'csp_admin_ajax', array(
@@ -257,6 +375,14 @@ class CSP_Admin {
                 'confirm_clear_logs' => __('Are you sure you want to clear all log files? This action cannot be undone.', 'csp-reporting'),
                 'logs_cleared' => __('Log files have been cleared successfully.', 'csp-reporting'),
                 'error_occurred' => __('An error occurred. Please try again.', 'csp-reporting'),
+                'no_file' => __('No log file selected.', 'csp-reporting'),
+                'loading' => __('Loading…', 'csp-reporting'),
+                'view' => __('View', 'csp-reporting'),
+                'clearing' => __('Clearing…', 'csp-reporting'),
+                'clear_logs' => __('Clear All Logs', 'csp-reporting'),
+                'sending' => __('Sending…', 'csp-reporting'),
+                'send_test_report' => __('Send Test Report', 'csp-reporting'),
+                'dismiss' => __('Dismiss this notice.', 'csp-reporting'),
             ),
         ));
     }
@@ -456,9 +582,14 @@ class CSP_Admin {
         }
         $sanitized['csp_policy_directives'] = $directives;
 
-        $sanitized['csp_admin_pages']         = ! empty($input['csp_admin_pages']) ? 1 : 0;
-        $sanitized['log_retention_days']      = intval($input['log_retention_days']);
-        $sanitized['log_max_size']            = intval($input['log_max_size']);
+        $sanitized['csp_admin_pages']    = ! empty($input['csp_admin_pages']) ? 1 : 0;
+        $sanitized['log_retention_days'] = isset($input['log_retention_days']) ? intval($input['log_retention_days']) : 30;
+        // The settings form submits megabytes; the option is stored in bytes.
+        if (isset($input['log_max_size_mb'])) {
+            $sanitized['log_max_size'] = max(1, intval($input['log_max_size_mb'])) * 1048576;
+        } elseif (isset($input['log_max_size'])) {
+            $sanitized['log_max_size'] = intval($input['log_max_size']);
+        }
         $sanitized['file_logging_enabled']    = ! empty($input['file_logging_enabled']) ? 1 : 0;
         $sanitized['rate_limit_per_minute']   = isset($input['rate_limit_per_minute']) ? max(0, intval($input['rate_limit_per_minute'])) : CSP_Reporter::RATE_LIMIT_PER_MINUTE;
         $sanitized['store_client_ip']         = ! empty($input['store_client_ip']) ? 1 : 0;
@@ -485,7 +616,7 @@ class CSP_Admin {
         }
 
         // Validate log max size (minimum 1MB)
-        if ($sanitized['log_max_size'] < 1048576) {
+        if ( ! isset($sanitized['log_max_size']) || $sanitized['log_max_size'] < 1048576) {
             $sanitized['log_max_size'] = 10485760; // 10MB
         }
 
@@ -510,21 +641,21 @@ class CSP_Admin {
     public function notify_email_enabled_callback() {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['notify_email_enabled']) ? 1 : 0;
-        echo '<input type="checkbox" name="csp_reporting_options[notify_email_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<input type="checkbox" id="csp-notify-email" name="csp_reporting_options[notify_email_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
         echo '<p class="description">' . esc_html__('Send digest emails and (optionally) immediate alerts.', 'csp-reporting') . '</p>';
     }
 
     public function notify_recipients_callback() {
         $options    = get_option('csp_reporting_options', array());
         $recipients = ! empty($options['notify_email_recipients']) ? $options['notify_email_recipients'] : get_option('admin_email');
-        echo '<input type="text" class="regular-text" name="csp_reporting_options[notify_email_recipients]" value="' . esc_attr($recipients) . '" />';
+        echo '<input type="text" class="regular-text" id="csp-notify-recipients" name="csp_reporting_options[notify_email_recipients]" value="' . esc_attr($recipients) . '" />';
         echo '<p class="description">' . esc_html__('Comma-separated email addresses.', 'csp-reporting') . '</p>';
     }
 
     public function notify_frequency_callback() {
         $options   = get_option('csp_reporting_options', array());
         $frequency = isset($options['notify_digest_frequency']) && $options['notify_digest_frequency'] === 'weekly' ? 'weekly' : 'daily';
-        echo '<select name="csp_reporting_options[notify_digest_frequency]">';
+        echo '<select id="csp-notify-frequency" name="csp_reporting_options[notify_digest_frequency]">';
         printf('<option value="daily" %s>%s</option>', selected($frequency, 'daily', false), esc_html__('Daily', 'csp-reporting'));
         printf('<option value="weekly" %s>%s</option>', selected($frequency, 'weekly', false), esc_html__('Weekly (Mondays)', 'csp-reporting'));
         echo '</select>';
@@ -534,14 +665,14 @@ class CSP_Admin {
     public function notify_immediate_callback() {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['notify_immediate_high']) ? 1 : 0;
-        echo '<input type="checkbox" name="csp_reporting_options[notify_immediate_high]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<input type="checkbox" id="csp-notify-immediate" name="csp_reporting_options[notify_immediate_high]" value="1" ' . checked(1, $enabled, false) . ' />';
         echo '<p class="description">' . esc_html(sprintf(__('Alert as soon as a high-severity violation is recorded (throttled to %d alerts per day).', 'csp-reporting'), CSP_Notifications::MAX_ALERTS_PER_DAY)) . '</p>';
     }
 
     public function notify_webhook_callback() {
         $options = get_option('csp_reporting_options', array());
         $url     = ! empty($options['notify_webhook_url']) ? $options['notify_webhook_url'] : '';
-        echo '<input type="url" class="regular-text code" name="csp_reporting_options[notify_webhook_url]" value="' . esc_attr($url) . '" placeholder="https://hooks.slack.com/services/..." />';
+        echo '<input type="url" class="regular-text code" id="csp-notify-webhook" name="csp_reporting_options[notify_webhook_url]" value="' . esc_attr($url) . '" placeholder="https://hooks.slack.com/services/..." />';
         echo '<p class="description">' . esc_html__('Slack-compatible incoming webhook. Receives the same content as the emails. Leave blank to disable.', 'csp-reporting') . '</p>';
     }
 
@@ -551,8 +682,8 @@ class CSP_Admin {
     public function csp_enabled_callback() {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['csp_enabled']) ? 1 : 0;
-        echo '<input type="checkbox" name="csp_reporting_options[csp_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
-        echo '<p class="description">' . esc_html__('Enable CSP report-only headers on your site.', 'csp-reporting') . '</p>';
+        echo '<input type="checkbox" id="csp-enabled" name="csp_reporting_options[csp_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<p class="description">' . esc_html__('Send the Content Security Policy header(s) chosen under Delivery Mode. Uncheck to stop sending them without losing any settings.', 'csp-reporting') . '</p>';
     }
 
     public function csp_mode_callback() {
@@ -561,9 +692,9 @@ class CSP_Admin {
         $options = get_option('csp_reporting_options', array());
 
         $modes = array(
-            CSP_Policy::MODE_REPORT_ONLY => __('Report-Only — log violations, block nothing (recommended while tuning)', 'csp-reporting'),
-            CSP_Policy::MODE_ENFORCE => __('Enforce — block violations and report them', 'csp-reporting'),
-            CSP_Policy::MODE_BOTH => __('Enforce + Test — enforce this policy while report-only testing a stricter one', 'csp-reporting'),
+            CSP_Policy::MODE_REPORT_ONLY => __('Report-Only', 'csp-reporting'),
+            CSP_Policy::MODE_ENFORCE => __('Enforce', 'csp-reporting'),
+            CSP_Policy::MODE_BOTH => __('Enforce + Test', 'csp-reporting'),
         );
 
         echo '<select name="csp_reporting_options[csp_mode]" id="csp-mode-select">';
@@ -571,11 +702,12 @@ class CSP_Admin {
             printf('<option value="%s" %s>%s</option>', esc_attr($value), selected($mode, $value, false), esc_html($label));
         }
         echo '</select>';
+        echo '<p class="description">' . esc_html__('Report-Only logs violations and blocks nothing (start here). Enforce blocks and reports. Enforce + Test enforces this policy while report-only testing a stricter draft.', 'csp-reporting') . '</p>';
 
         $test_policy = ! empty($options['csp_test_policy']) ? $options['csp_test_policy'] : '';
         echo $mode === CSP_Policy::MODE_BOTH
             ? '<div id="csp-test-policy-row">'
-            : '<div id="csp-test-policy-row" style="display:none;">';
+            : '<div id="csp-test-policy-row" class="hidden">';
         echo '<p><label for="csp-test-policy">' . esc_html__('Test policy (sent as Report-Only alongside the enforced policy):', 'csp-reporting') . '</label></p>';
         echo '<textarea id="csp-test-policy" name="csp_reporting_options[csp_test_policy]" rows="4" class="large-text code">' . esc_textarea($test_policy) . '</textarea>';
         echo '</div>';
@@ -609,7 +741,7 @@ class CSP_Admin {
             ),
         );
 
-        echo '<fieldset>';
+        echo '<fieldset><legend class="screen-reader-text">' . esc_html__('Nonce mode', 'csp-reporting') . '</legend>';
         foreach ($fields as $key => $field) {
             printf(
                 '<label for="%1$s"><input type="checkbox" class="csp-nonce-option" id="%1$s" name="csp_reporting_options[%2$s]" value="1" %3$s %4$s /> %5$s</label><br />',
@@ -622,11 +754,8 @@ class CSP_Admin {
         }
         echo '</fieldset>';
 
-        echo '<p class="description">' . esc_html__("Adds a fresh 'nonce-…' to script-src on every front-end page and stamps the same nonce on every script WordPress prints (enqueued, inline, and localized data). Browsers that support nonces then run only inline scripts carrying it and ignore 'unsafe-inline'; with 'strict-dynamic' they also ignore host sources and 'self', and trust scripts that a nonced script loads (Tag Manager and most loaders rely on this). Your existing 'unsafe-inline' and host sources are left in place on purpose — older browsers fall back to them.", 'csp-reporting') . '</p>';
-
-        echo '<p class="description">' . esc_html__('Test it first: in Enforce + Test mode, turn it on for the report-only header only. Every inline script and event handler that would break shows up under Violations. Turning it on for the enforced header blocks every inline script without the nonce — including scripts hard-coded in theme templates (stamp those with csp_nonce_attr()) and inline onclick-style handlers, which no nonce can fix — so only enforce once the test policy is quiet.', 'csp-reporting') . '</p>';
-
-        echo '<p class="description">' . esc_html__('Front end only: wp-admin pages never get a nonce, even with "Apply to Admin Pages" on. Full-page caches store the nonce with the page, so every visitor gets the same nonce until the cache expires; make sure your cache stores response headers along with the page, or the header and the page can disagree and an enforced policy will block every script.', 'csp-reporting') . '</p>';
+        echo '<p class="description">' . esc_html__("Adds a fresh nonce to script-src on every front-end page and stamps it on every script WordPress prints. Your 'unsafe-inline' and host sources stay in place as the fallback for older browsers.", 'csp-reporting') . '</p>';
+        echo '<p class="description">' . esc_html__('Turn it on for the report-only header first (Enforce + Test) and fix what shows up under Violations. On the enforced header it blocks every inline script without the nonce. Front end only; see Help (top right) for page caches and details.', 'csp-reporting') . '</p>';
 
         $directives = ( new CSP_Policy() )->get_directives();
         if ( ! isset($directives['script-src']) && ! isset($directives['default-src'])) {
@@ -650,7 +779,7 @@ class CSP_Admin {
         <table class="csp-policy-builder widefat striped" id="csp-policy-builder">
             <thead>
                 <tr>
-                    <th style="width:180px;"><?php esc_html_e('Directive', 'csp-reporting'); ?></th>
+                    <th class="csp-col-directive"><?php esc_html_e('Directive', 'csp-reporting'); ?></th>
                     <th><?php esc_html_e('Sources (space-separated; blank omits the directive)', 'csp-reporting'); ?></th>
                 </tr>
             </thead>
@@ -698,35 +827,36 @@ class CSP_Admin {
         <p class="description">
             <?php esc_html_e('The generated header preview updates as you type.', 'csp-reporting'); ?>
         </p>
-        <pre id="csp-policy-preview" class="code" style="white-space:pre-wrap;"></pre>
+        <pre id="csp-policy-preview" class="code csp-policy-preview"></pre>
         <?php
     }
 
     public function log_retention_callback() {
         $options   = get_option('csp_reporting_options', array());
         $retention = ! empty($options['log_retention_days']) ? intval($options['log_retention_days']) : 30;
-        echo '<input type="number" name="csp_reporting_options[log_retention_days]" value="' . esc_attr($retention) . '" min="1" max="365" />';
+        echo '<input type="number" id="csp-log-retention" name="csp_reporting_options[log_retention_days]" class="small-text" value="' . esc_attr($retention) . '" min="1" max="365" /> ' . esc_html__('days', 'csp-reporting');
         echo '<p class="description">' . esc_html__('Number of days to keep log files before automatic cleanup.', 'csp-reporting') . '</p>';
     }
 
     public function log_max_size_callback() {
         $options  = get_option('csp_reporting_options', array());
         $max_size = ! empty($options['log_max_size']) ? intval($options['log_max_size']) : 10485760;
-        echo '<input type="number" name="csp_reporting_options[log_max_size]" value="' . esc_attr($max_size) . '" min="1048576" step="1048576" />';
-        echo '<p class="description">' . esc_html__('Maximum size of a single log file in bytes. Files will be rotated when this size is reached.', 'csp-reporting') . '</p>';
+        $max_mb   = max(1, (int) round($max_size / 1048576));
+        echo '<input type="number" id="csp-log-max-size" class="small-text" name="csp_reporting_options[log_max_size_mb]" value="' . esc_attr($max_mb) . '" min="1" max="1024" step="1" /> ' . esc_html__('MB', 'csp-reporting');
+        echo '<p class="description">' . esc_html__('Raw log files are rotated when they reach this size.', 'csp-reporting') . '</p>';
     }
 
     public function admin_notices_callback() {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['enable_admin_notices']) ? 1 : 0;
-        echo '<input type="checkbox" name="csp_reporting_options[enable_admin_notices]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<input type="checkbox" id="csp-admin-notices" name="csp_reporting_options[enable_admin_notices]" value="1" ' . checked(1, $enabled, false) . ' />';
         echo '<p class="description">' . esc_html__('Show admin notices for important CSP events.', 'csp-reporting') . '</p>';
     }
 
     public function file_logging_callback() {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['file_logging_enabled']) ? 1 : 0;
-        echo '<input type="checkbox" name="csp_reporting_options[file_logging_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<input type="checkbox" id="csp-file-logging" name="csp_reporting_options[file_logging_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
         echo '<p class="description">' . esc_html(sprintf(
             /* translators: %s: log directory path */
             __('Also write raw reports to log files in %s. The violations database is the primary store; file logs are for external tooling.', 'csp-reporting'),
@@ -738,34 +868,34 @@ class CSP_Admin {
     public function rate_limit_callback() {
         $options = get_option('csp_reporting_options', array());
         $limit   = isset($options['rate_limit_per_minute']) ? intval($options['rate_limit_per_minute']) : CSP_Reporter::RATE_LIMIT_PER_MINUTE;
-        echo '<input type="number" name="csp_reporting_options[rate_limit_per_minute]" value="' . esc_attr($limit) . '" min="0" max="1000" />';
+        echo '<input type="number" id="csp-rate-limit" name="csp_reporting_options[rate_limit_per_minute]" class="small-text" value="' . esc_attr($limit) . '" min="0" max="1000" />';
         echo '<p class="description">' . esc_html__('Maximum reports accepted per minute from a single IP. 0 disables the limit.', 'csp-reporting') . '</p>';
     }
 
     public function ignore_patterns_callback() {
         $patterns = CSP_Utils::get_ignore_patterns();
-        echo '<textarea name="csp_reporting_options[ignore_patterns]" rows="6" cols="60" class="large-text code">' . esc_textarea(implode("\n", $patterns)) . '</textarea>';
+        echo '<textarea id="csp-ignore-patterns" name="csp_reporting_options[ignore_patterns]" rows="6" cols="60" class="large-text code">' . esc_textarea(implode("\n", $patterns)) . '</textarea>';
         echo '<p class="description">' . esc_html__('One pattern per line. Reports whose blocked URI or source file contains a pattern are dropped. Defaults cover browser-extension noise.', 'csp-reporting') . '</p>';
     }
 
     public function store_client_ip_callback() {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['store_client_ip']) ? 1 : 0;
-        echo '<input type="checkbox" name="csp_reporting_options[store_client_ip]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<input type="checkbox" id="csp-store-client-ip" name="csp_reporting_options[store_client_ip]" value="1" ' . checked(1, $enabled, false) . ' />';
         echo '<p class="description">' . esc_html__('Record the reporting visitor\'s IP address with each violation. Off by default: IPs are personal data (GDPR) and are not needed for policy tuning. Rate limiting works either way.', 'csp-reporting') . '</p>';
     }
 
     public function csp_admin_pages_callback() {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['csp_admin_pages']) ? 1 : 0;
-        echo '<input type="checkbox" name="csp_reporting_options[csp_admin_pages]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<input type="checkbox" id="csp-admin-pages" name="csp_reporting_options[csp_admin_pages]" value="1" ' . checked(1, $enabled, false) . ' />';
         echo '<p class="description">' . esc_html__('Also send the CSP header on wp-admin pages. Leave disabled unless your policy is known to be admin-safe.', 'csp-reporting') . '</p>';
     }
 
     public function purge_logs_callback() {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['purge_logs_on_uninstall']) ? 1 : 0;
-        echo '<input type="checkbox" name="csp_reporting_options[purge_logs_on_uninstall]" value="1" ' . checked(1, $enabled, false) . ' />';
+        echo '<input type="checkbox" id="csp-purge-logs" name="csp_reporting_options[purge_logs_on_uninstall]" value="1" ' . checked(1, $enabled, false) . ' />';
         echo '<p class="description">' . esc_html__('Also delete the raw log files when the plugin is uninstalled. Settings and the violations table are always removed.', 'csp-reporting') . '</p>';
     }
 
@@ -993,16 +1123,12 @@ class CSP_Admin {
         );
 
         // Persist dismissal without requiring admin.js on every screen.
-        ?>
-        <script>
-        jQuery(document).on('click', '.csp-high-notice .notice-dismiss', function() {
-            jQuery.post(ajaxurl, {
-                action: 'csp_dismiss_notice',
-                nonce: '<?php echo esc_js(wp_create_nonce('csp_dismiss_notice')); ?>'
-            });
-        });
-        </script>
-        <?php
+        // Printed through core's inline-script API so it gets the same
+        // attributes (e.g. a nonce) as other inline scripts.
+        wp_print_inline_script_tag(sprintf(
+            "jQuery(document).on('click', '.csp-high-notice .notice-dismiss', function () { jQuery.post(ajaxurl, { action: 'csp_dismiss_notice', nonce: %s }); });",
+            wp_json_encode(wp_create_nonce('csp_dismiss_notice'))
+        ));
     }
 
     /**
@@ -1053,13 +1179,15 @@ class CSP_Admin {
         if ( ! empty($stats['top_blocked'])) {
             echo '<h4>' . esc_html__('Top blocked sources', 'csp-reporting') . '</h4><ul>';
             foreach ($stats['top_blocked'] as $row) {
-                $uri = $row['blocked_uri'] !== '' ? $row['blocked_uri'] : __('(inline)', 'csp-reporting');
+                $type = CSP_Utils::inline_violation_type($row['directive'], $row['blocked_uri']);
+                $uri  = $type !== '' ? CSP_Utils::inline_type_label($type) : $row['blocked_uri'];
                 if (strlen($uri) > 50) {
                     $uri = substr($uri, 0, 47) . '…';
                 }
                 printf(
-                    '<li><code>%s</code> — %s</li>',
+                    '<li><code>%s</code> <span class="description">%s</span> — %s</li>',
                     esc_html($uri),
+                    esc_html($row['directive']),
                     esc_html(number_format_i18n( (int) $row['hits']))
                 );
             }

@@ -61,13 +61,26 @@ class CSP_Violations_List_Table extends WP_List_Table {
     public function get_columns() {
         return array(
             'cb' => '<input type="checkbox" />',
+            // Primary column first: core's mobile layout only folds the
+            // columns that follow it.
+            'blocked_uri' => __('Blocked URI', 'csp-reporting'),
             'severity' => __('Severity', 'csp-reporting'),
             'directive' => __('Directive', 'csp-reporting'),
-            'blocked_uri' => __('Blocked URI', 'csp-reporting'),
             'document_uri' => __('Page', 'csp-reporting'),
             'hit_count' => __('Count', 'csp-reporting'),
             'last_seen' => __('Last Seen', 'csp-reporting'),
         );
+    }
+
+    /**
+     * The blocked URI is what each row is about: on narrow screens it stays
+     * visible (the rest folds behind the row toggle), and it carries the
+     * row actions.
+     *
+     * @return string
+     */
+    protected function get_default_primary_column_name() {
+        return 'blocked_uri';
     }
 
     protected function get_sortable_columns() {
@@ -133,7 +146,10 @@ class CSP_Violations_List_Table extends WP_List_Table {
 
         $this->items = $this->database->get_violations($args);
 
-        $this->_column_headers = array( $this->get_columns(), array(), $this->get_sortable_columns() );
+        // The 4th element names the primary column. Without it, core looks
+        // the columns up on the screen, finds none registered for this
+        // custom table, and falls back to the first column (Severity).
+        $this->_column_headers = array( $this->get_columns(), array(), $this->get_sortable_columns(), $this->get_default_primary_column_name() );
 
         $this->set_pagination_args(array(
             'total_items' => $total_items,
@@ -189,25 +205,54 @@ class CSP_Violations_List_Table extends WP_List_Table {
             )) . '</small>';
         }
 
-        $actions = array();
+        return $out;
+    }
 
+    /**
+     * Row actions for the primary (Blocked URI) column, rendered the
+     * standard way so they appear on hover/focus and in the mobile toggle.
+     *
+     * @param array $item
+     * @param string $column_name
+     * @param string $primary
+     * @return string
+     */
+    protected function handle_row_actions( $item, $column_name, $primary ) {
+        if ($column_name !== $primary) {
+            return '';
+        }
+
+        $actions   = array();
         $directive = CSP_Policy::base_directive($item['directive']);
         $source    = CSP_Policy::source_from_blocked_uri($item['blocked_uri']);
 
         if ($directive && $source) {
+            // Short visible label (the origin is shown right above it); the
+            // full action is in aria-label for screen readers.
             $actions['allow'] = sprintf(
-                '<a href="#" class="csp-allow-source" data-id="%d">%s</a>',
+                '<a href="#" class="csp-allow-source" data-id="%1$d" aria-label="%2$s">%3$s</a>',
                 (int) $item['id'],
-                sprintf(
+                esc_attr(sprintf(
                     /* translators: 1: origin, 2: directive */
-                    esc_html__('Allow %1$s in %2$s', 'csp-reporting'),
-                    esc_html($source),
-                    esc_html($directive)
-                )
+                    __('Allow %1$s in %2$s', 'csp-reporting'),
+                    $source,
+                    $directive
+                )),
+                esc_html(sprintf(
+                    /* translators: %s: directive */
+                    __('Allow in %s', 'csp-reporting'),
+                    $directive
+                ))
             );
         }
 
-        return $out . $this->row_actions($actions);
+        if (empty($actions)) {
+            // row_actions() prints nothing without actions, which would also
+            // drop the mobile "show more details" toggle for this row.
+            return '<button type="button" class="toggle-row"><span class="screen-reader-text">' . esc_html__('Show more details', 'csp-reporting') . '</span></button>';
+        }
+
+        return $this->row_actions($actions);
     }
 
     protected function column_document_uri( $item ) {

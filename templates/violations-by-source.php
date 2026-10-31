@@ -17,6 +17,7 @@ $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violatio
 
 <div class="wrap csp-admin-page csp-full-width">
     <h1><?php esc_html_e('CSP Violations', 'csp-reporting'); ?></h1>
+    <hr class="wp-header-end">
 
     <?php $this->render_tabs('violations'); ?>
 
@@ -37,10 +38,11 @@ $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violatio
     <?php else : ?>
     <form method="post">
         <?php wp_nonce_field('csp_bulk_allow'); ?>
+        <div class="csp-table-scroll">
         <table class="widefat striped csp-by-source-table">
             <thead>
                 <tr>
-                    <td class="check-column"><input type="checkbox" id="csp-select-all-sources" /></td>
+                    <td class="check-column"><label class="screen-reader-text" for="csp-select-all-sources"><?php esc_html_e('Select all', 'csp-reporting'); ?></label><input type="checkbox" id="csp-select-all-sources" /></td>
                     <th><?php esc_html_e('Blocked Origin', 'csp-reporting'); ?></th>
                     <th><?php esc_html_e('Directive', 'csp-reporting'); ?></th>
                     <th><?php esc_html_e('Status', 'csp-reporting'); ?></th>
@@ -55,7 +57,10 @@ $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violatio
                 <tr>
                     <th class="check-column">
                         <?php if ( ! $row['allowed']) : ?>
-                        <input type="checkbox" name="sources[]"
+                        <label class="screen-reader-text" for="csp-source-<?php echo esc_attr(md5($row['directive'] . '|' . $row['blocked_origin'])); ?>">
+                            <?php echo esc_html(sprintf(__('Allow %1$s in %2$s', 'csp-reporting'), $row['blocked_origin'], $row['directive'])); ?>
+                        </label>
+                        <input type="checkbox" name="sources[]" id="csp-source-<?php echo esc_attr(md5($row['directive'] . '|' . $row['blocked_origin'])); ?>"
                                 value="<?php echo esc_attr($row['directive'] . '|' . $row['blocked_origin']); ?>" />
                         <?php endif; ?>
                     </th>
@@ -80,6 +85,7 @@ $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violatio
                 <?php endforeach; ?>
             </tbody>
         </table>
+        </div>
 
         <p class="submit">
             <button type="submit" name="csp_allow_sources" value="1" class="button button-primary">

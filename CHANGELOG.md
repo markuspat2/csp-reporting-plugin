@@ -77,6 +77,28 @@ script that still needs work first.
 - Log rotation replaced `.log` anywhere in the path, breaking for paths like
   `/var/www/my.logistics/`.
 
+### Admin UI
+- Follows WordPress admin conventions: a **Settings** / **Violations** link on
+  the Plugins screen, contextual **Help** tabs (overview, nonce mode, caching
+  and servers, violations), a **Screen Options** "violations per page"
+  setting, labels linked to every settings field, standard dismissible
+  notices announced to screen readers, translatable script strings, and no
+  inline `style` attributes or raw inline `<script>`.
+- Violations list: Blocked URI is now the first (primary) column, so on
+  phones each row shows what was blocked with an expand toggle (previously
+  only a severity badge, with the other columns squeezed into slivers); the
+  "Allow" row action is a one-line "Allow in <directive>" (full text for
+  screen readers), removing the tall empty gap in each row.
+- By Source scrolls inside its box on small screens instead of widening the
+  page.
+- Settings: shorter Delivery Mode choices with an explanation below, the
+  "Enable" description no longer claims report-only headers, nonce-mode help
+  condensed (details moved to the Help tab), log file size entered in MB,
+  and the log viewer closes with Escape.
+- Dashboard widget names inline rows ("Inline script block", "Inline event
+  handler") and shows each row's directive instead of listing "inline"
+  twice.
+
 ### Removed
 - Every medium/high report was also written to a `csp_admin_notifications`
   option nothing reads, and to the PHP error log, an extra write per report

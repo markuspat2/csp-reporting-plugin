@@ -13,6 +13,7 @@ if ( ! defined('ABSPATH')) {
 
 <div class="wrap csp-admin-page csp-full-width">
     <h1><?php esc_html_e('CSP Violations', 'csp-reporting'); ?></h1>
+    <hr class="wp-header-end">
 
     <?php $this->render_tabs('violations'); ?>
 
