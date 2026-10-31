@@ -234,7 +234,9 @@
         showAlert: function(message, type) {
             type = type || 'info';
             
-            var $alert = $('<div class="csp-alert csp-alert-' + type + '">' + message + '</div>');
+            // Messages can echo report data (e.g. a blocked origin), so they
+            // are always inserted as text, never as HTML.
+            var $alert = $('<div>', { 'class': 'csp-alert csp-alert-' + type }).text(message);
             
             $('.csp-admin-page').prepend($alert);
             
