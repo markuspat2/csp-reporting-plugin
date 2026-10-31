@@ -853,7 +853,7 @@ class CSP_Admin {
         }
 
         $dismissed_at = get_user_meta(get_current_user_id(), 'csp_notice_dismissed_at', true);
-        $week_ago     = gmdate('Y-m-d H:i:s', time() - ( 7 * DAY_IN_SECONDS ));
+        $week_ago     = wp_date('Y-m-d H:i:s', time() - ( 7 * DAY_IN_SECONDS )); // Local, like last_seen and the dismissal time.
         $since        = ( $dismissed_at && $dismissed_at > $week_ago ) ? $dismissed_at : $week_ago;
 
         $count = $this->database->count_high_since($since);
