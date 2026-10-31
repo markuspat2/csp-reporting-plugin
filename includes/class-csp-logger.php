@@ -29,7 +29,7 @@ class CSP_Logger {
      * Constructor
      */
     public function __construct() {
-        $this->log_dir       = CSP_REPORTING_LOG_DIR;
+        $this->log_dir       = rtrim(CSP_REPORTING_LOG_DIR, '/\\') . '/'; // A wp-config.php value may lack the trailing slash.
         $options             = get_option('csp_reporting_options', array());
         $this->max_file_size = ! empty($options['log_max_size']) ? intval($options['log_max_size']) : 10485760; // 10MB default
     }

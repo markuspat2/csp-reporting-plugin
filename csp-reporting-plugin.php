@@ -23,7 +23,11 @@ define('CSP_REPORTING_VERSION', '2.2.0');
 define('CSP_REPORTING_PLUGIN_FILE', __FILE__);
 define('CSP_REPORTING_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CSP_REPORTING_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('CSP_REPORTING_LOG_DIR', WP_CONTENT_DIR . '/csp-reports/');
+// Raw log directory. Define it in wp-config.php to keep logs outside the web
+// root (the right choice on nginx, which ignores the .htaccess written here).
+if ( ! defined('CSP_REPORTING_LOG_DIR')) {
+    define('CSP_REPORTING_LOG_DIR', WP_CONTENT_DIR . '/csp-reports/');
+}
 
 // Include required files
 require_once CSP_REPORTING_PLUGIN_DIR . 'includes/class-csp-utils.php';

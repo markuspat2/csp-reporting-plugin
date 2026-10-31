@@ -46,7 +46,8 @@ if (is_multisite()) {
 }
 
 if ($csp_purge_logs) {
-    $csp_log_dir = WP_CONTENT_DIR . '/csp-reports/';
+    // wp-config.php may move the directory (see CSP_REPORTING_LOG_DIR).
+    $csp_log_dir = defined('CSP_REPORTING_LOG_DIR') ? rtrim(CSP_REPORTING_LOG_DIR, '/\\') . '/' : WP_CONTENT_DIR . '/csp-reports/';
 
     if (is_dir($csp_log_dir)) {
         // No GLOB_BRACE: it is unavailable on some platforms (e.g. musl).

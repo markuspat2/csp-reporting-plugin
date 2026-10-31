@@ -70,6 +70,23 @@ script that still needs work first.
   and no longer relies on `GLOB_BRACE` when purging logs.
 - The release workflow interpolated the free-text `version` input into its
   shell script; it is now passed via the environment and must be `X.Y.Z`.
+- The site-wide "per day" report cap and the immediate-alert cap renewed
+  their expiry on every hit, so they never reset under steady traffic and
+  acted as cumulative caps. They are now fixed windows (per minute, per UTC
+  day).
+- Log rotation replaced `.log` anywhere in the path, breaking for paths like
+  `/var/www/my.logistics/`.
+
+### Removed
+- Every medium/high report was also written to a `csp_admin_notifications`
+  option nothing reads, and to the PHP error log, an extra write per report
+  and a flooded error log on busy sites. Both are gone (the admin notice
+  comes from the violations table).
+- The settings page no longer reads and decodes every log file to count
+  entries it never displayed.
+- Unused code: `CSP_Reporter::get_violation_statistics()`, and admin.js
+  `initTooltips()` (which stripped the native tooltips from truncated URLs)
+  and `debounce()`.
 
 ### Security
 - **Stored XSS and policy injection from forged reports.** `parse_url()`
@@ -100,6 +117,18 @@ script that still needs work first.
   link-local addresses (e.g. cloud metadata endpoints).
 - The CSV export's formula-injection guard also covers values starting with
   a tab or carriage return.
+- **Raw log files were publicly downloadable on nginx.** They used predictable
+  names (`csp-reports-2026-10-31.log`) and relied on an Apache-only
+  `.htaccess`, so on nginx anyone could fetch them, including full page URLs
+  (for example order keys in query strings) and, when enabled, visitor IPs.
+  File names now include a 24-character per-site secret; existing files are
+  renamed on the first admin visit or the daily cleanup; `.htaccess` uses both
+  Apache 2.2 and 2.4 syntax and is written whenever the directory is created.
+  `CSP_REPORTING_LOG_DIR` can now be defined in `wp-config.php` to keep logs
+  outside the web root, and the README documents an nginx rule.
+- **Rate limits could be bypassed with one request.** They counted requests,
+  but a Reporting API batch carries 100+ reports in the 32 KB payload cap (one
+  POST inserted 150 rows against a 30/minute limit). They now count reports.
 
 ## [2.1.0] - 2026-07-21
 
