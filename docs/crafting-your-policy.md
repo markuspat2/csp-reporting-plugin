@@ -66,17 +66,24 @@ Each violation is rated so you know where to look first:
 
 ## Step 3 — Approve the legitimate sources
 
-For every source in the **By Source** view that genuinely belongs on your site,
-you have two one-click options:
+For every source that genuinely belongs on your site, you have two one-click
+options:
 
-- On a single row, use the **Allow** action to add that origin to the correct
-  directive.
-- Or tick several rows and use **Allow Selected Sources** to add them all at
-  once.
+- In **By Source**, tick the rows and use **Allow Selected Sources** to add
+  them all at once.
+- Or, in **All Violations**, hover a row and use its **Allow** action to add
+  that one origin to the correct directive.
 
 Either way, the plugin writes the origin into the right directive of your policy
 for you — no hand-editing headers. The next time the page loads, that source is
 allowed, and it stops generating violations.
+
+> **Only plain origins are offered.** The plugin only ever adds a
+> `scheme://host[:port]` origin. Anyone can send your report endpoint a fake
+> report, so a "blocked URI" that doesn't reduce to a clean origin (for example
+> one with spaces or quotes in it, trying to sneak `'unsafe-inline'` into your
+> policy) gets no Allow option at all. Still glance at what you're approving:
+> an unfamiliar origin with a single report is worth a second look.
 
 You can also work from the **Settings** tab's policy builder directly. It has
 one row per directive (as a text box you can edit) plus **preset buttons** for
