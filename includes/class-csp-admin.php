@@ -761,7 +761,7 @@ class CSP_Admin {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['purge_logs_on_uninstall']) ? 1 : 0;
         echo '<input type="checkbox" name="csp_reporting_options[purge_logs_on_uninstall]" value="1" ' . checked(1, $enabled, false) . ' />';
-        echo '<p class="description">' . esc_html__('Delete the log directory and all violation data when the plugin is uninstalled.', 'csp-reporting') . '</p>';
+        echo '<p class="description">' . esc_html__('Also delete the raw log files in wp-content/csp-reports/ when the plugin is uninstalled. Settings and the violations table are always removed.', 'csp-reporting') . '</p>';
     }
 
     /**

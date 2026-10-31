@@ -23,7 +23,8 @@ and WP-CLI automation.
   current policy while report-only testing a stricter draft.
 - **Structured policy builder** — edit each directive's sources in the
   admin UI with a live header preview and presets for common services
-  (Google Fonts, Analytics, Tag Manager, YouTube).
+  (Google Fonts, Google Analytics, Tag Manager, YouTube, reCAPTCHA,
+  Jetpack/WordPress.com, UserWay, Userback, Cloudflare Insights, jsDelivr).
 - **Database-backed violation storage** — violations land in a dedicated
   table, deduplicated by directive + blocked URI + page (query strings and
   cache-busters ignored) with hit counters and first/last-seen timestamps.
@@ -34,7 +35,9 @@ and WP-CLI automation.
   blocked code sample in the list and in exports.
 - **Violations screen** — sortable, filterable, searchable list table with
   severity badges, bulk delete, and one-click **"Allow this source"** that
-  adds a blocked origin to the right directive.
+  adds a blocked origin to the right directive. Only plain origins
+  (`scheme://host[:port]`) are ever offered or written to the policy, so a
+  forged report can't smuggle a keyword like `'unsafe-inline'` in.
 - **"By Source" rollup** — one row per blocked origin + directive with an
   in-policy status column and a bulk **Allow Selected Sources** action:
   review everything the policy blocked and fix the policy in one step.
@@ -42,14 +45,17 @@ and WP-CLI automation.
   junk reports before storage; per-IP and site-wide rate limits protect the
   endpoint from floods.
 - **Notifications** — daily/weekly email digests, immediate high-severity
-  alerts (throttled), and Slack-compatible webhooks.
+  alerts (throttled), and Slack-compatible webhooks (sent with
+  `wp_safe_remote_post()`, so private and link-local addresses are refused).
 - **Dashboard widget** — 7-day violation sparkline and top blocked sources.
 - **Modern + legacy reporting** — sends `report-uri`, `report-to`, and
   `Reporting-Endpoints`, and accepts both `application/csp-report` and
   Reporting API (`application/reports+json`) batch payloads.
 - **WP-CLI** — automate status checks, policy edits, and violation triage
   across a fleet of sites.
-- **Multisite** — per-site policies with a network admin overview.
+- **Multisite** — per-site policies with a network admin overview. Raw log
+  files live in one shared directory, so viewing, downloading, or clearing
+  them requires a network admin; uninstall cleans every site.
 - **Export** — download filtered violations as CSV or JSON for client
   reports.
 
@@ -107,12 +113,12 @@ and WP-CLI automation.
 | Apply to Admin Pages | off | Also send the header on wp-admin. |
 | Log Retention (Days) | 30 | Violations and log files older than this are pruned daily. |
 | Max Log File Size | 10 MB | Rotation threshold for optional file logs. |
-| Raw File Logging | off | Also write NDJSON logs to `wp-content/csp-reports/`. |
+| Raw File Logging | off | Also write NDJSON logs to `wp-content/csp-reports/`. The directory is shared by every site on a multisite network, so there only network admins can view, download, or clear the files. |
 | Rate Limit | 30/min/IP | Reports accepted per IP per minute (0 disables). |
 | Ignore Patterns | extension noise | Substrings that drop matching reports. |
-| Store Client IP Addresses | off | Record reporter IPs with violations. Off by default — IPs are personal data (GDPR) and aren't needed for policy tuning; rate limiting works regardless. |
+| Store Client IP Addresses | off | Record reporter IPs with violations, in both the database and raw file logs. Off by default — IPs are personal data (GDPR) and aren't needed for policy tuning; rate limiting works regardless. |
 | Enable Admin Notices | on | Dismissible notice for new high-severity violations. |
-| Purge Logs on Uninstall | off | Delete all data when the plugin is uninstalled. |
+| Purge Logs on Uninstall | off | Also delete the raw log files when the plugin is uninstalled. Settings and the violations table are always removed. |
 | Notifications | off | Email digests, immediate alerts, webhook URL. |
 
 ## WP-CLI
@@ -232,13 +238,16 @@ curl -i -X POST https://example.com/wp-json/csp-reporting/v1/report \
 ## Data storage
 
 - Violations: `{$wpdb->prefix}csp_violations` table (schema version 3 adds
-  the `script_sample` column; existing rows are kept as-is on upgrade).
+  the `script_sample` column; existing rows are kept as-is on upgrade). Schema
+  upgrades run automatically on the first request after an update — front end
+  or admin — and only one request performs them.
 - Optional raw logs: `wp-content/csp-reports/*.log` (NDJSON, protected by
   `.htaccess`, rotated at the configured size).
 - Retention: both stores are pruned daily after the configured number of
   days.
-- Uninstall: options and the table are always removed; logs are removed only
-  if "Purge Logs on Uninstall" is enabled.
+- Uninstall: options, scheduled events, and the table are always removed —
+  on every site of a multisite network; log files are removed only if "Purge
+  Logs on Uninstall" is enabled.
 
 ## Development
 
