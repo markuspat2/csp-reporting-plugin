@@ -23,6 +23,8 @@ function csp_reporting_uninstall_site() {
     delete_option('csp_admin_notifications');
     delete_option('csp_reporting_db_version');
     delete_option('csp_reporting_logs_migrated');
+    delete_option('csp_reporting_logs_hardened');
+    delete_option('csp_reporting_log_secret');
     delete_option('csp_reporting_rewrite_version'); // Legacy 1.x marker.
 
     wp_clear_scheduled_hook('csp_cleanup_logs');
@@ -44,7 +46,8 @@ if (is_multisite()) {
 }
 
 if ($csp_purge_logs) {
-    $csp_log_dir = WP_CONTENT_DIR . '/csp-reports/';
+    // wp-config.php may move the directory (see CSP_REPORTING_LOG_DIR).
+    $csp_log_dir = defined('CSP_REPORTING_LOG_DIR') ? rtrim(CSP_REPORTING_LOG_DIR, '/\\') . '/' : WP_CONTENT_DIR . '/csp-reports/';
 
     if (is_dir($csp_log_dir)) {
         // No GLOB_BRACE: it is unavailable on some platforms (e.g. musl).

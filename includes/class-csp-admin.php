@@ -727,7 +727,12 @@ class CSP_Admin {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['file_logging_enabled']) ? 1 : 0;
         echo '<input type="checkbox" name="csp_reporting_options[file_logging_enabled]" value="1" ' . checked(1, $enabled, false) . ' />';
-        echo '<p class="description">' . esc_html__('Also write raw reports to log files in wp-content/csp-reports/. The violations database is the primary store; file logs are for external tooling.', 'csp-reporting') . '</p>';
+        echo '<p class="description">' . esc_html(sprintf(
+            /* translators: %s: log directory path */
+            __('Also write raw reports to log files in %s. The violations database is the primary store; file logs are for external tooling.', 'csp-reporting'),
+            CSP_REPORTING_LOG_DIR
+        )) . '</p>';
+        echo '<p class="description">' . esc_html__('File names include a random secret and the directory gets a deny-all .htaccess, but nginx ignores .htaccess: on nginx, block the directory in the server config or move it outside the web root with CSP_REPORTING_LOG_DIR in wp-config.php.', 'csp-reporting') . '</p>';
     }
 
     public function rate_limit_callback() {
@@ -761,7 +766,7 @@ class CSP_Admin {
         $options = get_option('csp_reporting_options', array());
         $enabled = ! empty($options['purge_logs_on_uninstall']) ? 1 : 0;
         echo '<input type="checkbox" name="csp_reporting_options[purge_logs_on_uninstall]" value="1" ' . checked(1, $enabled, false) . ' />';
-        echo '<p class="description">' . esc_html__('Also delete the raw log files in wp-content/csp-reports/ when the plugin is uninstalled. Settings and the violations table are always removed.', 'csp-reporting') . '</p>';
+        echo '<p class="description">' . esc_html__('Also delete the raw log files when the plugin is uninstalled. Settings and the violations table are always removed.', 'csp-reporting') . '</p>';
     }
 
     /**

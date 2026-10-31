@@ -9,7 +9,6 @@
         
         init: function() {
             this.bindEvents();
-            this.initTooltips();
         },
         
         bindEvents: function() {
@@ -245,27 +244,6 @@
                     $(this).remove();
                 });
             }, 5000);
-        },
-        
-        initTooltips: function() {
-            // Add tooltips to buttons and form elements
-            $('[title]').each(function() {
-                var $this = $(this);
-                var title = $this.attr('title');
-                $this.removeAttr('title').attr('data-tooltip', title);
-            });
-        },
-        
-        debounce: function(func, wait) {
-            var timeout;
-            return function executedFunction() {
-                var later = function() {
-                    clearTimeout(timeout);
-                    func.apply(this, arguments);
-                }.bind(this);
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
         }
     };
     

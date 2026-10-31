@@ -97,6 +97,14 @@ function wp_mkdir_p($dir) {
     return is_dir($dir) || mkdir($dir, 0777, true);
 }
 
+function wp_generate_password($length = 12, $special_chars = true, $extra_special_chars = false) {
+    return substr(bin2hex(random_bytes($length)), 0, $length);
+}
+
+function size_format($bytes) {
+    return $bytes . ' B';
+}
+
 function __($text, $domain = null) {
     return $text;
 }
@@ -110,6 +118,19 @@ function set_transient($key, $value, $expiration = 0) {
     return true;
 }
 
+/**
+ * Minimal REST response stub: handle_report() returns one.
+ */
+class WP_REST_Response {
+    public $data;
+    public $status;
+
+    public function __construct($data = null, $status = 200) {
+        $this->data   = $data;
+        $this->status = $status;
+    }
+}
+
 require_once dirname(__DIR__) . '/includes/class-csp-utils.php';
 require_once dirname(__DIR__) . '/includes/class-csp-nonce.php';
 require_once dirname(__DIR__) . '/includes/csp-template-functions.php';
@@ -117,3 +138,16 @@ require_once dirname(__DIR__) . '/includes/class-csp-policy.php';
 require_once dirname(__DIR__) . '/includes/class-csp-database.php';
 require_once dirname(__DIR__) . '/includes/class-csp-logger.php';
 require_once dirname(__DIR__) . '/includes/class-csp-reporter.php';
+
+/**
+ * Database double that records inserts instead of touching $wpdb.
+ */
+class CSP_Test_Recording_Database extends CSP_Database {
+
+    public $inserted = array();
+
+    public function insert_violation( $violation ) {
+        $this->inserted[] = $violation;
+        return true;
+    }
+}

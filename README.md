@@ -113,7 +113,7 @@ and WP-CLI automation.
 | Apply to Admin Pages | off | Also send the header on wp-admin. |
 | Log Retention (Days) | 30 | Violations and log files older than this are pruned daily. |
 | Max Log File Size | 10 MB | Rotation threshold for optional file logs. |
-| Raw File Logging | off | Also write NDJSON logs to `wp-content/csp-reports/`. The directory is shared by every site on a multisite network, so there only network admins can view, download, or clear the files. |
+| Raw File Logging | off | Also write NDJSON logs to `wp-content/csp-reports/` (or `CSP_REPORTING_LOG_DIR`). The directory is shared by every site on a multisite network, so there only network admins can view, download, or clear the files. On nginx, see [Raw logs on nginx](#raw-logs-on-nginx). |
 | Rate Limit | 30/min/IP | Reports accepted per IP per minute (0 disables). |
 | Ignore Patterns | extension noise | Substrings that drop matching reports. |
 | Store Client IP Addresses | off | Record reporter IPs with violations, in both the database and raw file logs. Off by default — IPs are personal data (GDPR) and aren't needed for policy tuning; rate limiting works regardless. |
@@ -241,13 +241,43 @@ curl -i -X POST https://example.com/wp-json/csp-reporting/v1/report \
   the `script_sample` column; existing rows are kept as-is on upgrade). Schema
   upgrades run automatically on the first request after an update — front end
   or admin — and only one request performs them.
-- Optional raw logs: `wp-content/csp-reports/*.log` (NDJSON, protected by
-  `.htaccess`, rotated at the configured size).
+- Optional raw logs: `wp-content/csp-reports/csp-reports-<date>-<secret>.log`
+  (NDJSON, rotated at the configured size). The 24-character per-site secret
+  in the name makes the files unguessable; the directory also gets a
+  deny-all `.htaccess` (Apache 2.2 and 2.4) and an `index.php`. Files written
+  with the old predictable names are renamed on the first admin visit or
+  daily cleanup after updating.
 - Retention: both stores are pruned daily after the configured number of
   days.
 - Uninstall: options, scheduled events, and the table are always removed —
   on every site of a multisite network; log files are removed only if "Purge
   Logs on Uninstall" is enabled.
+
+### Raw logs on nginx
+
+nginx ignores `.htaccess`, so on nginx (SpinupWP, and WP Engine's front end)
+the only built-in protection is the random secret in each file name. Raw file
+logging is off by default; if you turn it on, add one of these:
+
+- **Block the directory** in the server config. On SpinupWP, put this in an
+  include under the site's `server` configuration directory:
+
+  ```nginx
+  location ^~ /wp-content/csp-reports/ {
+      deny all;
+  }
+  ```
+
+- **Move the logs outside the web root** with a constant in `wp-config.php`
+  (the directory must be writable by PHP; on WP Engine, the `_wpeprivate`
+  folder in the site root is not web-accessible):
+
+  ```php
+  define( 'CSP_REPORTING_LOG_DIR', '/path/outside/webroot/csp-reports/' );
+  ```
+
+The violations database, which the admin screens use, never involves these
+files.
 
 ## Development
 

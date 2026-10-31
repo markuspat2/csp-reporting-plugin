@@ -3,19 +3,6 @@
 use PHPUnit\Framework\TestCase;
 
 /**
- * Database double that records inserts instead of touching $wpdb.
- */
-class CSP_Test_Recording_Database extends CSP_Database {
-
-    public $inserted = array();
-
-    public function insert_violation( $violation ) {
-        $this->inserted[] = $violation;
-        return true;
-    }
-}
-
-/**
  * Script samples and per-script deduplication for the inline inventory.
  */
 class CSP_Inline_Inventory_Test extends TestCase {
