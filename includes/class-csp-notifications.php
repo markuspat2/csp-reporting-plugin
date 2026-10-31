@@ -167,7 +167,10 @@ class CSP_Notifications {
             return;
         }
 
-        $count = (int) get_transient('csp_alerts_sent_today');
+        // Keyed by UTC day: re-setting one rolling transient extended its
+        // expiry on every alert, so the daily cap never reset.
+        $counter_key = 'csp_alerts_sent_' . gmdate('Ymd');
+        $count       = (int) get_transient($counter_key);
 
         /**
          * Filter the maximum immediate alerts per day.
@@ -180,7 +183,7 @@ class CSP_Notifications {
             return;
         }
 
-        set_transient('csp_alerts_sent_today', $count + 1, DAY_IN_SECONDS);
+        set_transient($counter_key, $count + 1, 2 * DAY_IN_SECONDS);
 
         $csp_report = $report['csp-report'];
 

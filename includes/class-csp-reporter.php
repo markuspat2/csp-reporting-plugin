@@ -82,10 +82,6 @@ class CSP_Reporter {
             return $this->error_response('Payload too large', 413);
         }
 
-        if ( ! $this->check_rate_limit()) {
-            return $this->error_response('Too many reports', 429);
-        }
-
         // Browsers send Content-Type: application/csp-report (report-uri) or
         // application/reports+json (report-to), neither of which the REST
         // API parses into params — decode the raw body ourselves.
@@ -101,7 +97,15 @@ class CSP_Reporter {
             return $this->error_response('Invalid report structure', 400);
         }
 
-        foreach ($reports as $report_data) {
+        // Limits count reports, not requests: one Reporting API batch can
+        // carry a hundred-plus reports in the 32 KB payload cap.
+        $granted = $this->consume_rate_limit(count($reports));
+
+        if ($granted < 1) {
+            return $this->error_response('Too many reports', 429);
+        }
+
+        foreach (array_slice($reports, 0, $granted) as $report_data) {
             $this->process_report($report_data);
         }
 
@@ -243,14 +247,20 @@ class CSP_Reporter {
     }
 
     /**
-     * Enforce the per-IP and site-wide report rate limits.
+     * Take up to $wanted reports from the per-IP and site-wide allowances.
      *
      * The endpoint is unauthenticated by necessity, so this is the main
      * defense against disk/DB-fill floods.
      *
-     * @return bool True when the request is within limits.
+     * Each limit is a fixed window keyed by the current minute (per IP) or
+     * UTC day (site-wide). Re-setting one rolling transient on every report,
+     * as before, pushed its expiry forward each time, so the "per day" cap
+     * never reset while reports kept arriving and became a cumulative cap.
+     *
+     * @param int $wanted Reports in this request.
+     * @return int Reports that may be processed (0..$wanted).
      */
-    private function check_rate_limit() {
+    private function consume_rate_limit( $wanted ) {
         $options = get_option('csp_reporting_options', array());
 
         /**
@@ -258,7 +268,7 @@ class CSP_Reporter {
          *
          * @param int $limit
          */
-        $per_minute = apply_filters(
+        $per_minute = (int) apply_filters(
             'csp_reporting_rate_limit_per_minute',
             isset($options['rate_limit_per_minute']) ? (int) $options['rate_limit_per_minute'] : self::RATE_LIMIT_PER_MINUTE
         );
@@ -268,30 +278,32 @@ class CSP_Reporter {
          *
          * @param int $limit
          */
-        $per_day = apply_filters('csp_reporting_rate_limit_per_day', self::RATE_LIMIT_PER_DAY);
+        $per_day = (int) apply_filters('csp_reporting_rate_limit_per_day', self::RATE_LIMIT_PER_DAY);
+
+        $now     = time();
+        $windows = array();
 
         if ($per_minute > 0) {
-            $ip_key = 'csp_rl_' . md5(CSP_Utils::get_client_ip());
-            $count  = (int) get_transient($ip_key);
-
-            if ($count >= $per_minute) {
-                return false;
-            }
-
-            set_transient($ip_key, $count + 1, MINUTE_IN_SECONDS);
+            $windows[] = array( 'csp_rl_' . md5(CSP_Utils::get_client_ip()) . '_' . (int) floor($now / MINUTE_IN_SECONDS), $per_minute, 2 * MINUTE_IN_SECONDS );
         }
 
         if ($per_day > 0) {
-            $count = (int) get_transient('csp_rl_global');
-
-            if ($count >= $per_day) {
-                return false;
-            }
-
-            set_transient('csp_rl_global', $count + 1, DAY_IN_SECONDS);
+            $windows[] = array( 'csp_rl_global_' . gmdate('Ymd', $now), $per_day, 2 * DAY_IN_SECONDS );
         }
 
-        return true;
+        $granted = max(0, (int) $wanted);
+
+        foreach ($windows as $window) {
+            $granted = min($granted, max(0, $window[1] - (int) get_transient($window[0])));
+        }
+
+        if ($granted > 0) {
+            foreach ($windows as $window) {
+                set_transient($window[0], (int) get_transient($window[0]) + $granted, $window[2]);
+            }
+        }
+
+        return $granted;
     }
 
     /**
