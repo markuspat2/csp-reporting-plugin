@@ -23,6 +23,8 @@ function csp_reporting_uninstall_site() {
     delete_option('csp_admin_notifications');
     delete_option('csp_reporting_db_version');
     delete_option('csp_reporting_logs_migrated');
+    delete_option('csp_reporting_logs_hardened');
+    delete_option('csp_reporting_log_secret');
     delete_option('csp_reporting_rewrite_version'); // Legacy 1.x marker.
 
     wp_clear_scheduled_hook('csp_cleanup_logs');

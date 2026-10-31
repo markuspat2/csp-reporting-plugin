@@ -11,6 +11,16 @@ if ( ! defined('ABSPATH')) {
 
 class CSP_Logger {
 
+    /**
+     * Option holding this site's random log-file name secret.
+     */
+    const SECRET_OPTION = 'csp_reporting_log_secret';
+
+    /**
+     * Marker written into .htaccess so outdated copies can be recognised.
+     */
+    const HTACCESS_MARKER = '# CSP Reporting Plugin: deny all';
+
     private $log_dir;
     private $max_file_size;
     private $current_log_file;
@@ -150,8 +160,11 @@ class CSP_Logger {
             return $this->current_log_file;
         }
 
+        // The name carries a per-site random secret: .htaccess only protects
+        // the directory on Apache, and on nginx a predictable name
+        // (csp-reports-2026-10-31.log) was downloadable by anyone.
         $date     = current_time('Y-m-d');
-        $log_file = $this->log_dir . 'csp-reports-' . $date . '.log';
+        $log_file = $this->log_dir . 'csp-reports-' . $date . '-' . $this->get_secret() . '.log';
 
         // Ensure directory exists
         if ( ! file_exists($this->log_dir)) {
@@ -159,6 +172,7 @@ class CSP_Logger {
                 error_log('CSP Reporting Plugin: Failed to create log directory');
                 return false;
             }
+            $this->protect_directory();
         }
 
         $this->current_log_file = $log_file;
@@ -187,12 +201,86 @@ class CSP_Logger {
             return;
         }
 
-        $timestamp    = current_time('Y-m-d-H-i-s');
-        $rotated_file = str_replace('.log', '-' . $timestamp . '.log', $this->current_log_file);
+        $timestamp = current_time('Y-m-d-H-i-s');
+        // Only the extension: str_replace() over the whole path also hit
+        // directories like /var/www/my.logistics/.
+        $rotated_file = preg_replace('/\.log$/', '-' . $timestamp . '.log', $this->current_log_file);
 
         if (rename($this->current_log_file, $rotated_file)) {
             $this->current_log_file = null; // Reset to create new file
         }
+    }
+
+    /**
+     * Get (creating on first use) this site's log-file name secret.
+     *
+     * @return string
+     */
+    private function get_secret() {
+        $secret = get_option(self::SECRET_OPTION);
+
+        if ( ! is_string($secret) || ! preg_match('/^[A-Za-z0-9]{20,}$/', $secret)) {
+            $secret = wp_generate_password(24, false, false);
+            update_option(self::SECRET_OPTION, $secret, false);
+        }
+
+        return $secret;
+    }
+
+    /**
+     * Write the deny-all .htaccess (Apache 2.2 and 2.4 syntax) and a silent
+     * index.php into the log directory, replacing an outdated .htaccess.
+     */
+    public function protect_directory() {
+        if ( ! is_dir($this->log_dir)) {
+            return;
+        }
+
+        $htaccess = $this->log_dir . '.htaccess';
+        $current  = file_exists($htaccess) ? (string) file_get_contents($htaccess) : '';
+
+        if (strpos($current, self::HTACCESS_MARKER) === false) {
+            file_put_contents($htaccess, self::HTACCESS_MARKER . "\n<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n    Order Deny,Allow\n    Deny from all\n</IfModule>\n");
+        }
+
+        if ( ! file_exists($this->log_dir . 'index.php')) {
+            file_put_contents($this->log_dir . 'index.php', '<?php // Silence is golden');
+        }
+    }
+
+    /**
+     * One-time hardening of an existing log directory: refresh the
+     * protection files and give log files written with predictable names
+     * (before 2.2.0, including 1.x logs) this site's secret.
+     *
+     * @return int Files renamed.
+     */
+    public function harden_log_directory() {
+        if ( ! is_dir($this->log_dir)) {
+            return 0;
+        }
+
+        $this->protect_directory();
+
+        $renamed = 0;
+
+        foreach ($this->get_log_files() as $file) {
+            $name = basename($file);
+
+            // Only the old fixed patterns; names that already carry a secret
+            // (this site's or, on multisite, another site's) never match.
+            if ( ! preg_match('/^csp-reports-\d{4}-\d{2}-\d{2}(-\d{4}(-\d{2}){5})?\.log$/', $name)) {
+                continue;
+            }
+
+            $target = $this->log_dir . substr($name, 0, -4) . '-' . $this->get_secret() . '.log';
+
+            if ( ! file_exists($target) && rename($file, $target)) {
+                ++$renamed;
+            }
+        }
+
+        return $renamed;
     }
 
     /**
@@ -205,7 +293,7 @@ class CSP_Logger {
             return array();
         }
 
-        $files = glob($this->log_dir . '*.log');
+        $files = (array) glob($this->log_dir . '*.log');
         rsort($files);
 
         return $files;
@@ -248,7 +336,7 @@ class CSP_Logger {
             return 0;
         }
 
-        $files         = glob($this->log_dir . '*.log');
+        $files         = (array) glob($this->log_dir . '*.log');
         $cutoff_time   = time() - ( $retention_days * 24 * 60 * 60 );
         $deleted_count = 0;
 
@@ -269,14 +357,15 @@ class CSP_Logger {
      * @return array
      */
     public function get_log_statistics() {
-        $files         = $this->get_log_files();
-        $total_size    = 0;
-        $total_entries = 0;
+        $files      = $this->get_log_files();
+        $total_size = 0;
 
+        // Sizes only: this runs on every settings page view, and it used to
+        // read and JSON-decode every log file (up to 10 MB each) to count
+        // entries nothing displayed.
         foreach ($files as $file) {
             if (file_exists($file)) {
-                $total_size    += filesize($file);
-                $total_entries += count($this->read_log_entries($file));
+                $total_size += filesize($file);
             }
         }
 
@@ -284,9 +373,6 @@ class CSP_Logger {
             'total_files' => count($files),
             'total_size' => $total_size,
             'total_size_formatted' => size_format($total_size),
-            'total_entries' => $total_entries,
-            'oldest_file' => ! empty($files) ? basename(end($files)) : null,
-            'newest_file' => ! empty($files) ? basename($files[0]) : null,
         );
     }
 }

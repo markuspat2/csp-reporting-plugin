@@ -109,6 +109,7 @@ class CSP_Reporting_Plugin {
 
         if (is_admin()) {
             $this->database->maybe_upgrade($this->logger);
+            $this->maybe_harden_logs();
             CSP_Notifications::schedule(); // No-op when already scheduled; covers upgrades without re-activation.
             $this->admin = new CSP_Admin($this->logger, $this->reporter, $this->database);
         }
@@ -132,6 +133,21 @@ class CSP_Reporting_Plugin {
 
         // Scheduled log cleanup.
         add_action('csp_cleanup_logs', array( $this, 'cleanup_old_logs' ));
+    }
+
+    /**
+     * Once per site after updating to 2.2.0: rename predictably named log
+     * files and refresh the directory's protection files. Also drops the
+     * never-displayed csp_admin_notifications option.
+     */
+    private function maybe_harden_logs() {
+        if (get_option('csp_reporting_logs_hardened')) {
+            return;
+        }
+
+        $this->logger->harden_log_directory();
+        delete_option('csp_admin_notifications');
+        update_option('csp_reporting_logs_hardened', 1, false);
     }
 
     /**
@@ -197,14 +213,10 @@ class CSP_Reporting_Plugin {
     private function create_log_directory() {
         if ( ! file_exists(CSP_REPORTING_LOG_DIR)) {
             wp_mkdir_p(CSP_REPORTING_LOG_DIR);
-
-            // Create .htaccess to protect log files
-            $htaccess_content = "Order Deny,Allow\nDeny from all\n";
-            file_put_contents(CSP_REPORTING_LOG_DIR . '.htaccess', $htaccess_content);
-
-            // Create index.php to prevent directory listing
-            file_put_contents(CSP_REPORTING_LOG_DIR . 'index.php', '<?php // Silence is golden');
         }
+
+        $logger = $this->logger instanceof CSP_Logger ? $this->logger : new CSP_Logger();
+        $logger->protect_directory();
     }
 
     /**
@@ -290,6 +302,7 @@ class CSP_Reporting_Plugin {
         $retention_days = ! empty($options['log_retention_days']) ? intval($options['log_retention_days']) : 30;
 
         $this->logger->clean_old_logs($retention_days);
+        $this->logger->harden_log_directory(); // Cheap; covers sites nobody has opened wp-admin on since updating.
         $this->database->prune($retention_days);
     }
 }

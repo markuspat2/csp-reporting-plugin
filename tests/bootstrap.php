@@ -97,6 +97,14 @@ function wp_mkdir_p($dir) {
     return is_dir($dir) || mkdir($dir, 0777, true);
 }
 
+function wp_generate_password($length = 12, $special_chars = true, $extra_special_chars = false) {
+    return substr(bin2hex(random_bytes($length)), 0, $length);
+}
+
+function size_format($bytes) {
+    return $bytes . ' B';
+}
+
 function __($text, $domain = null) {
     return $text;
 }
