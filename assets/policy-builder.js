@@ -85,9 +85,32 @@
 
     var NONCE_PLACEHOLDER = "'nonce-{generated per request}'";
 
+    // Saved settings, for inputs that live on another settings tab (the
+    // preview is on Policy; Delivery Mode and nonce mode are on General).
+    var SAVED = window.csp_policy_builder || {};
+    var SAVED_KEYS = {
+        'csp-nonce-enforce': 'nonce_enforce',
+        'csp-nonce-report-only': 'nonce_report_only',
+        'csp-strict-dynamic': 'strict_dynamic',
+        'csp-report-sample': 'report_sample'
+    };
+
     function isOn(id) {
         var $el = $('#' + id);
-        return $el.length > 0 && $el.is(':checked') && !$el.is(':disabled');
+        if (!$el.length) {
+            return !!SAVED[SAVED_KEYS[id]];
+        }
+        return $el.is(':checked') && !$el.is(':disabled');
+    }
+
+    function currentMode() {
+        var $select = $('#csp-mode-select');
+        return $select.length ? $select.val() : (SAVED.mode || 'report-only');
+    }
+
+    function currentTestPolicy() {
+        var $textarea = $('#csp-test-policy');
+        return $textarea.length ? $textarea.val() : (SAVED.test_policy || '');
     }
 
     // [[name, value], ...] from the builder, in display order.
@@ -214,7 +237,7 @@
             return;
         }
 
-        var mode = $('#csp-mode-select').val() || 'report-only';
+        var mode = currentMode() || 'report-only';
         var main = builderDirectives();
         var lines = [];
         var value;
@@ -229,7 +252,7 @@
         if (mode === 'report-only' || mode === 'both') {
             var pairs = main;
             if (mode === 'both') {
-                var test = parsePolicy($('#csp-test-policy').val() || '');
+                var test = parsePolicy(currentTestPolicy());
                 if (test.length) {
                     pairs = test;
                 }
