@@ -558,7 +558,9 @@ class CSP_Policy {
 
         $directives = $this->get_directives();
         $current    = isset($directives[$directive]) ? $directives[$directive] : '';
-        $sources    = $current === '' ? array() : explode(' ', $current);
+        // 'none' can't be combined with other sources (browsers ignore it
+        // and warn), so allowing a source replaces it.
+        $sources = ( $current === '' || strtolower(trim($current)) === "'none'" ) ? array() : explode(' ', $current);
 
         if (in_array($source, $sources, true)) {
             return false;

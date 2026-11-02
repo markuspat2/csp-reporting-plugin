@@ -50,6 +50,15 @@ class CSP_Security_Test extends TestCase {
         $this->assertTrue($policy->add_source('script-src', 'https://cdn.example.com'));
     }
 
+    public function test_add_source_replaces_none() {
+        $GLOBALS['csp_test_options']['csp_reporting_options'] = array(
+            'csp_policy_directives' => array( 'frame-src' => "'none'" ),
+        );
+
+        $this->assertTrue(( new CSP_Policy() )->add_source('frame-src', 'https://player.example.tv'));
+        $this->assertSame('https://player.example.tv', $GLOBALS['csp_test_options']['csp_reporting_options']['csp_policy_directives']['frame-src']);
+    }
+
     public function test_non_string_report_fields_are_coerced_not_fatal() {
         $reporter = new CSP_Reporter();
 

@@ -91,7 +91,7 @@ $csp_views_base = admin_url('options-general.php?page=csp-reporting&tab=violatio
             <button type="submit" name="csp_allow_sources" value="1" class="button button-primary">
                 <?php esc_html_e('Allow Selected Sources', 'csp-reporting'); ?>
             </button>
-            <a href="<?php echo esc_url(admin_url('options-general.php?page=csp-reporting')); ?>" class="button button-secondary">
+            <a href="<?php echo esc_url(admin_url('options-general.php?page=csp-reporting&tab=policy')); ?>" class="button button-secondary">
                 <?php esc_html_e('Review Policy', 'csp-reporting'); ?>
             </a>
         </p>

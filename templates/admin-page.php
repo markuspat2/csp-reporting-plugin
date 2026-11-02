@@ -14,7 +14,7 @@ if ( ! defined('ABSPATH')) {
     <h1><?php esc_html_e('CSP Reporting Settings', 'csp-reporting'); ?></h1>
     <hr class="wp-header-end">
 
-    <?php $this->render_tabs('settings'); ?>
+    <?php $this->render_tabs($active_tab); ?>
 
     <?php settings_errors(); ?>
     
@@ -23,7 +23,9 @@ if ( ! defined('ABSPATH')) {
             <form method="post" action="options.php">
                 <?php
                 settings_fields('csp_reporting_options');
-                do_settings_sections('csp-reporting');
+                // Tells sanitize_options() which tab's fields to save.
+                echo '<input type="hidden" name="csp_reporting_options[_tab]" value="' . esc_attr($active_tab) . '" />';
+                do_settings_sections('csp-reporting-' . $active_tab);
                 submit_button();
                 ?>
             </form>

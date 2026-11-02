@@ -9,6 +9,7 @@ define('ABSPATH', sys_get_temp_dir() . '/wp/');
 define('WP_CONTENT_DIR', sys_get_temp_dir() . '/wp-content');
 define('CSP_REPORTING_LOG_DIR', WP_CONTENT_DIR . '/csp-reports/');
 define('CSP_REPORTING_VERSION', 'test');
+define('CSP_REPORTING_PLUGIN_FILE', dirname(__DIR__) . '/csp-reporting-plugin.php');
 define('MINUTE_IN_SECONDS', 60);
 define('DAY_IN_SECONDS', 86400);
 
@@ -105,6 +106,35 @@ function size_format($bytes) {
     return $bytes . ' B';
 }
 
+function sanitize_key($key) {
+    return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $key));
+}
+
+function sanitize_text_field($str) {
+    return (is_object($str) || is_array($str)) ? '' : trim(preg_replace('/[\r\n\t ]+/', ' ', strip_tags((string) $str)));
+}
+
+function sanitize_textarea_field($str) {
+    // Like core: arrays and objects become ''.
+    return (is_object($str) || is_array($str)) ? '' : trim(strip_tags((string) $str));
+}
+
+function sanitize_email($email) {
+    return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+}
+
+function esc_url_raw($url) {
+    return filter_var($url, FILTER_VALIDATE_URL) ? $url : '';
+}
+
+function plugin_basename($file) {
+    return basename(dirname($file)) . '/' . basename($file);
+}
+
+function is_multisite() {
+    return false;
+}
+
 function __($text, $domain = null) {
     return $text;
 }
@@ -138,6 +168,8 @@ require_once dirname(__DIR__) . '/includes/class-csp-policy.php';
 require_once dirname(__DIR__) . '/includes/class-csp-database.php';
 require_once dirname(__DIR__) . '/includes/class-csp-logger.php';
 require_once dirname(__DIR__) . '/includes/class-csp-reporter.php';
+require_once dirname(__DIR__) . '/includes/class-csp-notifications.php';
+require_once dirname(__DIR__) . '/includes/class-csp-admin.php';
 
 /**
  * Database double that records inserts instead of touching $wpdb.

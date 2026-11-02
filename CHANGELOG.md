@@ -76,8 +76,21 @@ script that still needs work first.
   day).
 - Log rotation replaced `.log` anywhere in the path, breaking for paths like
   `/var/www/my.logistics/`.
+- Every "Allow" (and "Allow Selected Sources") wiped the Ignore Patterns:
+  the policy is saved by writing the whole options array back, which runs the
+  settings sanitizer, and that turned the stored pattern array into an empty
+  string. Browser-extension noise then flooded back into the violations list.
+  Present since 2.1.0.
+- Allowing a source on a directive set to `'none'` produced
+  `'none' https://…`, which browsers ignore with a console warning; the
+  source now replaces `'none'`.
 
 ### Admin UI
+- The settings page is split into **General**, **Policy**, **Logging**, and
+  **Notifications** tabs (alongside **Violations**). Each tab saves only its
+  own fields, so saving one tab never resets another's checkboxes. The header
+  preview on the Policy tab follows the saved Delivery Mode and nonce
+  settings. Old `tab=settings` links open General.
 - Follows WordPress admin conventions: a **Settings** / **Violations** link on
   the Plugins screen, contextual **Help** tabs (overview, nonce mode, caching
   and servers, violations), a **Screen Options** "violations per page"

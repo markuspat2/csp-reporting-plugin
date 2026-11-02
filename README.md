@@ -103,23 +103,27 @@ and WP-CLI automation.
 
 ## Settings reference
 
-| Setting | Default | Description |
-| --- | --- | --- |
-| Enable CSP Reporting | on | Master switch for sending CSP headers. |
-| Delivery Mode | Report-Only | Report-Only, Enforce, or Enforce + Test. |
-| Nonce Mode (script-src) | off | Per header: add a per-request nonce to the **report-only** header (the test policy in Enforce + Test, or the main policy in Report-Only) and/or the **enforced** header, plus optional `'strict-dynamic'`. Stamps every WordPress-printed script. Requires WordPress 6.4+; never applies to wp-admin. Enforcing it blocks every inline script without the nonce. |
-| Report Samples | off | Add `'report-sample'` to `script-src` on every header sent so reports include the first 40 characters of blocked code. Doesn't change what is blocked; samples are page code and are stored and exported. |
-| Policy Directives | sensible baseline | Per-directive source lists. |
-| Apply to Admin Pages | off | Also send the header on wp-admin. |
-| Log Retention (Days) | 30 | Violations and log files older than this are pruned daily. |
-| Max Log File Size | 10 MB | Rotation threshold for optional file logs. |
-| Raw File Logging | off | Also write NDJSON logs to `wp-content/csp-reports/` (or `CSP_REPORTING_LOG_DIR`). The directory is shared by every site on a multisite network, so there only network admins can view, download, or clear the files. On nginx, see [Raw logs on nginx](#raw-logs-on-nginx). |
-| Rate Limit | 30/min/IP | Reports accepted per IP per minute (0 disables). |
-| Ignore Patterns | extension noise | Substrings that drop matching reports. |
-| Store Client IP Addresses | off | Record reporter IPs with violations, in both the database and raw file logs. Off by default — IPs are personal data (GDPR) and aren't needed for policy tuning; rate limiting works regardless. |
-| Enable Admin Notices | on | Dismissible notice for new high-severity violations. |
-| Purge Logs on Uninstall | off | Also delete the raw log files when the plugin is uninstalled. Settings and the violations table are always removed. |
-| Notifications | off | Email digests, immediate alerts, webhook URL. |
+Settings are split across the **General**, **Policy**, **Logging**, and
+**Notifications** tabs under Settings → CSP Reporting; each tab saves only its
+own fields.
+
+| Setting | Tab | Default | Description |
+| --- | --- | --- | --- |
+| Enable CSP Reporting | General | on | Master switch for sending CSP headers. |
+| Delivery Mode | General | Report-Only | Report-Only, Enforce, or Enforce + Test. |
+| Nonce Mode (script-src) | General | off | Per header: add a per-request nonce to the **report-only** header (the test policy in Enforce + Test, or the main policy in Report-Only) and/or the **enforced** header, plus optional `'strict-dynamic'`. Stamps every WordPress-printed script. Requires WordPress 6.4+; never applies to wp-admin. Enforcing it blocks every inline script without the nonce. |
+| Report Samples | General | off | Add `'report-sample'` to `script-src` on every header sent so reports include the first 40 characters of blocked code. Doesn't change what is blocked; samples are page code and are stored and exported. |
+| Policy Directives | Policy | sensible baseline | Per-directive source lists. |
+| Apply to Admin Pages | General | off | Also send the header on wp-admin. |
+| Log Retention (Days) | Logging | 30 | Violations and log files older than this are pruned daily. |
+| Max Log File Size | Logging | 10 MB | Rotation threshold for optional file logs (entered in MB). |
+| Raw File Logging | Logging | off | Also write NDJSON logs to `wp-content/csp-reports/` (or `CSP_REPORTING_LOG_DIR`). The directory is shared by every site on a multisite network, so there only network admins can view, download, or clear the files. On nginx, see [Raw logs on nginx](#raw-logs-on-nginx). |
+| Rate Limit | Logging | 30/min/IP | Reports accepted per IP per minute (0 disables). |
+| Ignore Patterns | Logging | extension noise | Substrings that drop matching reports. |
+| Store Client IP Addresses | Logging | off | Record reporter IPs with violations, in both the database and raw file logs. Off by default — IPs are personal data (GDPR) and aren't needed for policy tuning; rate limiting works regardless. |
+| Enable Admin Notices | Notifications | on | Dismissible notice for new high-severity violations. |
+| Purge Logs on Uninstall | Logging | off | Also delete the raw log files when the plugin is uninstalled. Settings and the violations table are always removed. |
+| Notifications | Notifications | off | Email digests, immediate alerts, webhook URL. |
 
 ## WP-CLI
 

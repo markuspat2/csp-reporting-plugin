@@ -23,12 +23,16 @@ yet beyond a passive reporting header.
 
 ## 2. Open the settings
 
-Go to **Settings → CSP Reporting**. You'll see two tabs:
+Go to **Settings → CSP Reporting**. Across the top are five tabs:
 
-- **Settings** — where you configure the policy and how the plugin behaves.
+- **General** — on/off switch, delivery mode, nonce mode.
+- **Policy** — the per-directive policy builder, presets, and a live preview
+  of the headers.
+- **Logging** — retention, ignore patterns, IP storage, raw log files.
+- **Notifications** — admin notices, email digests, alerts, webhook.
 - **Violations** — where reported problems show up (empty for now).
 
-At the top of the Settings tab, confirm:
+Each tab saves only its own settings. On the **General** tab, confirm:
 
 - **Enable CSP Reporting** is checked.
 - **Delivery Mode** is set to **Report-Only** (the default). Leave it here for
@@ -43,7 +47,7 @@ reference.
 
 Before trusting the data, prove that reports actually arrive.
 
-1. On the **Settings** tab sidebar, click **Send Test Report**.
+1. In the sidebar (shown on every settings tab), click **Send Test Report**.
 2. Switch to the **Violations** tab.
 
 You should see a new row appear. If it does, the full path — header sent →
@@ -69,15 +73,15 @@ continue to [Crafting Your Policy](crafting-your-policy.md).
 
 ## Recommended first settings
 
-The defaults are sensible, but these are worth a glance on the Settings tab:
+The defaults are sensible, but these are worth a glance:
 
-| Setting | Suggested starting value | Why |
-| --- | --- | --- |
-| Delivery Mode | **Report-Only** | Watch without blocking while you learn what your site loads. |
-| Enable Admin Notices | On | You'll get a heads-up in wp-admin when high-severity violations appear. |
-| Log Retention (Days) | 30 | How long violations are kept before automatic cleanup. |
-| Store Client IP Addresses | Off | IPs are personal data and aren't needed to build a policy. Leave off unless you have a specific reason. |
-| Ignore Patterns | (defaults) | Pre-filled to drop common browser-extension noise so your logs stay meaningful. |
+| Tab | Setting | Suggested starting value | Why |
+| --- | --- | --- | --- |
+| General | Delivery Mode | **Report-Only** | Watch without blocking while you learn what your site loads. |
+| Notifications | Enable Admin Notices | On | You'll get a heads-up in wp-admin when high-severity violations appear. |
+| Logging | Log Retention (Days) | 30 | How long violations are kept before automatic cleanup. |
+| Logging | Store Client IP Addresses | Off | IPs are personal data and aren't needed to build a policy. Leave off unless you have a specific reason. |
+| Logging | Ignore Patterns | (defaults) | Pre-filled to drop common browser-extension noise so your logs stay meaningful. |
 
 Optional, once you're comfortable:
 

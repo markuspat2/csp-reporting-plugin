@@ -33,7 +33,7 @@ Leave the plugin in **Report-Only** mode and let it run on live traffic for a
 few days. Real visitors load pages, embedded widgets, and third-party scripts
 you might never hit yourself, and every block becomes a report.
 
-If you've enabled the **email digest** (Settings → Notifications), you'll get a
+If you've enabled the **email digest** (the **Notifications** tab), you'll get a
 summary of activity without having to check manually.
 
 ## Step 2 — Review what got blocked
@@ -85,7 +85,7 @@ allowed, and it stops generating violations.
 > policy) gets no Allow option at all. Still glance at what you're approving:
 > an unfamiliar origin with a single report is worth a second look.
 
-You can also work from the **Settings** tab's policy builder directly. It has
+You can also work from the **Policy** tab's policy builder directly. It has
 one row per directive (as a text box you can edit) plus **preset buttons** for
 common services — Google Fonts, Google Analytics, Tag Manager, YouTube,
 reCAPTCHA, Jetpack/WordPress.com, UserWay, Userback, Cloudflare Insights, and
@@ -102,7 +102,7 @@ live preview shows the header you're building as you type.
 
 Not every violation is about your site. Browser extensions, translation tools,
 and injected content produce reports for things you don't control and can't fix.
-The plugin ships with **Ignore Patterns** (Settings tab) pre-filled to drop the
+The plugin ships with **Ignore Patterns** (the **Logging** tab) pre-filled to drop the
 most common offenders (`chrome-extension://`, `moz-extension://`, `about:blank`,
 and similar).
 
@@ -149,7 +149,7 @@ Every one is legitimate. You'd:
 
 Once new violations have dried up:
 
-1. Settings → **Delivery Mode** → switch to **Enforce**.
+1. **General** tab → **Delivery Mode** → switch to **Enforce**.
 2. Save.
 
 The plugin now sends the enforcing header. Anything *not* in your policy is
@@ -188,7 +188,7 @@ enforced policy. Nothing breaks along the way.
 
 ### Step 1 — Turn on nonce mode for the test policy
 
-1. Settings → **Delivery Mode** → **Enforce + Test**. Your current policy keeps
+1. **General** tab → **Delivery Mode** → **Enforce + Test**. Your current policy keeps
    being enforced exactly as before.
 2. In the **Test Policy** box, paste your current policy (or leave the box
    empty to test the main policy as-is). You can leave `'unsafe-inline'` and
