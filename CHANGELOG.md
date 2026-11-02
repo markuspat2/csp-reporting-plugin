@@ -3,7 +3,7 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.2.0] - Unreleased
+## [2.2.0] - 2026-11-02
 
 Nonce mode: move `script-src` off `'unsafe-inline'` and host allowlists to
 `'nonce-…' 'strict-dynamic'`, using Enforce + Test to inventory every inline
