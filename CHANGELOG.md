@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- Admin section tabs use a flat, underlined style (similar to WooCommerce's
+  settings tabs) and follow the admin color scheme. The tab bar is now a
+  `<nav>` with an accessible label, and the active tab has
+  `aria-current="page"`. It scrolls sideways on narrow screens.
+
 ## [2.2.0] - 2026-11-02
 
 Nonce mode: move `script-src` off `'unsafe-inline'` and host allowlists to
