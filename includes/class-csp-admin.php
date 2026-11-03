@@ -434,16 +434,21 @@ class CSP_Admin {
     public function render_tabs( $active ) {
         $tabs = array_merge(self::settings_tabs(), array( 'violations' => __('Violations', 'csp-reporting') ));
 
-        echo '<h2 class="nav-tab-wrapper">';
+        // Core nav-tab classes are kept so the tabs still look native if
+        // the plugin stylesheet is missing; csp-nav-tabs restyles them as
+        // flat, underlined tabs (see admin.css).
+        printf('<nav class="nav-tab-wrapper csp-nav-tabs" aria-label="%s">', esc_attr__('CSP Reporting sections', 'csp-reporting'));
         foreach ($tabs as $slug => $label) {
+            $is_active = $active === $slug;
             printf(
-                '<a href="%s" class="nav-tab %s">%s</a>',
+                '<a href="%s" class="nav-tab%s"%s>%s</a>',
                 esc_url(add_query_arg(array( 'page' => 'csp-reporting', 'tab' => $slug ), admin_url('options-general.php'))),
-                $active === $slug ? 'nav-tab-active' : '',
+                $is_active ? ' nav-tab-active' : '',
+                $is_active ? ' aria-current="page"' : '',
                 esc_html($label)
             );
         }
-        echo '</h2>';
+        echo '</nav>';
     }
 
     /**
